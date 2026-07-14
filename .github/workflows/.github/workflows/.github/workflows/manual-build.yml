@@ -1,0 +1,104 @@
+name: Build DYYY
+
+on:
+  workflow_dispatch:
+    inputs:
+      scheme:
+        description: Package scheme
+        required: true
+        default: rootless
+        type: choice
+        options:
+          - rootless
+          - rootful
+          - roothide
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dyyy-${{ github.ref }}-${{ inputs.scheme }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build ${{ inputs.scheme }}
+    runs-on: macos-14
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Theos
+        uses: theos/action@v1
+        with:
+          theos-src: https://github.com/theos/theos.git
+          sdks: https://github.com/theos/sdks.git
+
+      - name: Show environment
+        shell: bash
+        run: |
+          echo "Branch: $GITHUB_REF_NAME"
+          echo "Commit: $GITHUB_SHA"
+          echo "Scheme: ${{ inputs.scheme }}"
+          echo "THEOS: $THEOS"
+          clang --version
+          make --version
+
+      - name: Clean
+        shell: bash
+        run: |
+          make clean || true
+          rm -rf artifacts
+          mkdir -p artifacts
+
+      - name: Build package
+        shell: bash
+        run: |
+          set -o pipefail
+          if [ "${{ inputs.scheme }}" = "rootful" ]; then
+            GITHUB_ACTIONS=true \
+              make package FINALPACKAGE=1 \
+              2>&1 | tee build.log
+          else
+            GITHUB_ACTIONS=true \
+              make package \
+              SCHEME="${{ inputs.scheme }}" \
+              FINALPACKAGE=1 \
+              2>&1 | tee build.log
+          fi
+
+      - name: Collect files
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p artifacts
+
+          if [ -d packages ]; then
+            find packages -type f -name '*.deb' \
+              -exec cp -v {} artifacts/ \;
+          fi
+
+          if [ -d .theos ]; then
+            find .theos -type f -name '*.dylib' \
+              -exec cp -v {} artifacts/ \; || true
+          fi
+
+          if [ -f build.log ]; then
+            cp build.log artifacts/
+          fi
+
+          echo "Collected files:"
+          find artifacts -maxdepth 1 -type f -print
+
+      - name: Upload result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: DYYY-${{ inputs.scheme }}-${{ github.run_number }}
+          path: artifacts/
+          if-no-files-found: warn
+          retention-days: 30
