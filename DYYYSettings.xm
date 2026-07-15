@@ -1189,6 +1189,12 @@ void showDYYYSettingsVC(UIViewController *rootVC, BOOL hasAgreed) {
             @"detail" : @"",
             @"cellType" : @37,
             @"imageName" : @"ic_clock_outlined_20"},
+            @{@"identifier" : @"DYYYEnableLiveCommerceProbe",
+            @"title" : @"直播电商字段诊断",
+            @"subTitle" : @"记录直播商品视图中的模型和公开字段",
+            @"detail" : @"",
+            @"cellType" : @37,
+            @"imageName" : @"ic_search_outlined_20"},
 
           @{@"identifier" : @"DYYYCommentExactTime",
             @"title" : @"评论具体时间",
