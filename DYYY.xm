@@ -8199,6 +8199,9 @@ static void DYYYCommerceProbeObject(id object,
         const char *name = ivar_getName(ivars[index]);
         if (!name) continue;
 
+        const char *type = ivar_getTypeEncoding(ivars[index]);
+        if (!type || type[0] != '@') continue;
+
         NSString *key = [NSString stringWithUTF8String:name];
         if (DYYYCommerceProbeSensitiveKey(key) ||
             !DYYYCommerceProbeInterestingKey(key)) {
