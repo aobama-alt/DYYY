@@ -9210,7 +9210,60 @@ static void DYYYCommerceProbeHotSaleUpdate(
     }
 }
 */
- 
+
+%hook MTLJSONAdapter
+
++ (id)modelOfClass:(Class)modelClass
+fromJSONDictionary:(NSDictionary *)JSONDictionary
+             error:(NSError **)error {
+    NSString *modelClassName =
+        modelClass ? NSStringFromClass(modelClass) : @"";
+
+    BOOL probeEnabled =
+        DYYYGetBool(@"DYYYEnableLiveCommerceProbe");
+
+    if (probeEnabled &&
+        [JSONDictionary isKindOfClass:[NSDictionary class]] &&
+        [modelClassName
+            isEqualToString:@"IESECLiveGoodsHotSaleModel"]) {
+
+        DYYYCommerceProbeAppend(
+            [NSString stringWithFormat:
+                @"\n===== HOT_RAW_MODEL class=%@ =====",
+                modelClassName]);
+
+        DYYYCommerceProbeHotRawValue(
+            JSONDictionary,
+            @"HOT_MODEL_JSON",
+            0);
+    }
+
+    return %orig;
+}
+
+- (id)modelFromJSONDictionary:(NSDictionary *)JSONDictionary
+                        error:(NSError **)error {
+    id result = %orig;
+
+    if (DYYYGetBool(@"DYYYEnableLiveCommerceProbe") &&
+        [JSONDictionary isKindOfClass:[NSDictionary class]] &&
+        [NSStringFromClass([result class])
+            isEqualToString:@"IESECLiveGoodsHotSaleModel"]) {
+
+        DYYYCommerceProbeAppend(
+            @"\n===== HOT_RAW_ADAPTER_INSTANCE =====");
+
+        DYYYCommerceProbeHotRawValue(
+            JSONDictionary,
+            @"HOT_ADAPTER_JSON",
+            0);
+    }
+
+    return result;
+}
+
+%end
+
 %hook IESECLiveHotSaleView
 
 - (void)setCurHotsaleItem:(id)item {
@@ -9301,62 +9354,9 @@ static void DYYYCommerceProbeHotRawValue(
                     depth + 1);
             }
         }
-
-        return;
-    }
-
-%hook MTLJSONAdapter
-
-+ (id)modelOfClass:(Class)modelClass
-fromJSONDictionary:(NSDictionary *)JSONDictionary
-             error:(NSError **)error {
-    NSString *modelClassName =
-        modelClass ? NSStringFromClass(modelClass) : @"";
-
-    BOOL probeEnabled =
-        DYYYGetBool(@"DYYYEnableLiveCommerceProbe");
-
-    if (probeEnabled &&
-        [JSONDictionary isKindOfClass:[NSDictionary class]] &&
-        [modelClassName
-            isEqualToString:@"IESECLiveGoodsHotSaleModel"]) {
-
-        DYYYCommerceProbeAppend(
-            [NSString stringWithFormat:
-                @"\n===== HOT_RAW_MODEL class=%@ =====",
-                modelClassName]);
-
-        DYYYCommerceProbeHotRawValue(
-            JSONDictionary,
-            @"HOT_MODEL_JSON",
-            0);
-    }
-
-    return %orig;
+    }      
 }
-
-- (id)modelFromJSONDictionary:(NSDictionary *)JSONDictionary
-                        error:(NSError **)error {
-    id result = %orig;
-
-    if (DYYYGetBool(@"DYYYEnableLiveCommerceProbe") &&
-        [JSONDictionary isKindOfClass:[NSDictionary class]] &&
-        [NSStringFromClass([result class])
-            isEqualToString:@"IESECLiveGoodsHotSaleModel"]) {
-
-        DYYYCommerceProbeAppend(
-            @"\n===== HOT_RAW_ADAPTER_INSTANCE =====");
-
-        DYYYCommerceProbeHotRawValue(
-            JSONDictionary,
-            @"HOT_ADAPTER_JSON",
-            0);
-    }
-
-    return result;
-}
-
-%end
+return;
 
     if ([value isKindOfClass:[NSArray class]]) {
         NSArray *array = value;
