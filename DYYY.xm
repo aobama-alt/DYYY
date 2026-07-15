@@ -10148,19 +10148,59 @@ if ([eventText isEqualToString:@"live_life_set_data"]) {
 
 %end
 
+static void DYYYCommerceProbeExactClass(
+    NSString *className
+);
 
 %hook IESLLLiveMessageFilterHandler
 
 - (void)handlePostMessage:(id)message
            withSubscriber:(id)subscriber {
-    DYYYCommerceProbeLiveMessage(
-        @"filter.handlePostMessage",
-        message);
+    if (DYYYGetBool(@"DYYYEnableLiveCommerceProbe")) {
+        static dispatch_once_t onceToken;
+
+        dispatch_once(&onceToken, ^{
+            DYYYCommerceProbeAppend(
+                @"PROBE_BUILD exact-purchase-class-v1");
+
+            DYYYCommerceProbeExactClass(
+                @"IESLLLivePurchaseAtmosphereViewModel");
+
+            DYYYCommerceProbeExactClass(
+                @"IESLLLivePurchaseAtmosphereConfig");
+
+            DYYYCommerceProbeExactClass(
+                @"IESLLLivePurchaseAtmosphereLayoutItem");
+
+            DYYYCommerceProbeExactClass(
+                @"IESLLLiveMessageCenterData");
+        });
+
+        NSString *messageClass =
+            message
+                ? NSStringFromClass(
+                    object_getClass(message))
+                : @"<nil>";
+
+        NSString *subscriberClass =
+            subscriber
+                ? NSStringFromClass(
+                    object_getClass(subscriber))
+                : @"<nil>";
+
+        DYYYCommerceProbeAppend(
+            [NSString stringWithFormat:
+                @"FILTER_MESSAGE messageClass=%@ "
+                 "subscriberClass=%@",
+                messageClass,
+                subscriberClass]);
+    }
 
     %orig(message, subscriber);
 }
 
 %end
+
 
 static void DYYYCommerceProbeExactClass(
     NSString *className
