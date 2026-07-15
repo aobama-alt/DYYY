@@ -9519,6 +9519,174 @@ static void DYYYCommerceProbePromotionListSummary(
     }
 }
 
+static BOOL DYYYCommerceProbeSelectorIsRelevant(
+    NSString *selectorName
+) {
+    if (selectorName.length == 0) return NO;
+
+    NSString *lower = selectorName.lowercaseString;
+
+    NSArray<NSString *> *keywords = @[
+        @"message",
+        @"handle",
+        @"consume",
+        @"dispatch",
+        @"receive",
+        @"notify",
+        @"update",
+        @"purchase",
+        @"order",
+        @"goods",
+        @"product",
+        @"commerce",
+        @"atmosphere",
+        @"hot",
+        @"sale"
+    ];
+
+    for (NSString *keyword in keywords) {
+        if ([lower containsString:keyword]) {
+            return YES;
+        }
+    }
+
+    return NO;
+}
+
+static BOOL DYYYCommerceProbeClassIsRelevant(
+    NSString *className
+) {
+    if (className.length == 0) return NO;
+
+    NSString *lower = className.lowercaseString;
+
+    BOOL hasLiveContext =
+        [lower containsString:@"live"] ||
+        [lower containsString:@"webcast"] ||
+        [lower containsString:@"iesec"];
+
+    BOOL hasMessageOrCommerce =
+        [lower containsString:@"message"] ||
+        [lower containsString:@"commerce"] ||
+        [lower containsString:@"ecom"] ||
+        [lower containsString:@"goods"] ||
+        [lower containsString:@"product"] ||
+        [lower containsString:@"purchase"] ||
+        [lower containsString:@"order"] ||
+        [lower containsString:@"atmosphere"] ||
+        [lower containsString:@"hotsale"];
+
+    return hasLiveContext && hasMessageOrCommerce;
+}
+
+static void DYYYCommerceProbeMethodsForClass(
+    Class cls,
+    NSString *prefix
+) {
+    if (!cls) return;
+
+    unsigned int methodCount = 0;
+    Method *methods =
+        class_copyMethodList(cls, &methodCount);
+
+    NSUInteger logged = 0;
+
+    for (unsigned int index = 0;
+         index < methodCount && logged < 100;
+         index++) {
+        SEL selector =
+            method_getName(methods[index]);
+
+        NSString *selectorName =
+            NSStringFromSelector(selector);
+
+        if (!DYYYCommerceProbeSelectorIsRelevant(
+                selectorName)) {
+            continue;
+        }
+
+        DYYYCommerceProbeAppend(
+            [NSString stringWithFormat:
+                @"MESSAGE_METHOD %@ %@",
+                prefix,
+                selectorName]);
+
+        logged++;
+    }
+
+    free(methods);
+}
+
+static void DYYYCommerceProbeMessageClassInventory(void) {
+    static dispatch_once_t onceToken;
+
+    dispatch_once(&onceToken, ^{
+        int classCount = objc_getClassList(NULL, 0);
+        if (classCount <= 0) return;
+
+        Class *classes =
+            (Class *)calloc(
+                (size_t)classCount,
+                sizeof(Class));
+
+        if (!classes) return;
+
+        classCount =
+            objc_getClassList(classes, classCount);
+
+        DYYYCommerceProbeAppend(
+            [NSString stringWithFormat:
+                @"\n===== MESSAGE_CLASS_INVENTORY "
+                 "runtimeClasses=%d =====",
+                classCount]);
+
+        NSUInteger matchedClasses = 0;
+
+        for (int index = 0;
+             index < classCount &&
+             matchedClasses < 300;
+             index++) {
+            Class cls = classes[index];
+            if (!cls) continue;
+
+            NSString *className =
+                NSStringFromClass(cls);
+
+            if (!DYYYCommerceProbeClassIsRelevant(
+                    className)) {
+                continue;
+            }
+
+            DYYYCommerceProbeAppend(
+                [NSString stringWithFormat:
+                    @"MESSAGE_CLASS %@",
+                    className]);
+
+            DYYYCommerceProbeMethodsForClass(
+                cls,
+                [NSString stringWithFormat:
+                    @"-[%@]", className]);
+
+            Class metaClass =
+                object_getClass((id)cls);
+
+            DYYYCommerceProbeMethodsForClass(
+                metaClass,
+                [NSString stringWithFormat:
+                    @"+[%@]", className]);
+
+            matchedClasses++;
+        }
+
+        DYYYCommerceProbeAppend(
+            [NSString stringWithFormat:
+                @"MESSAGE_CLASS_INVENTORY_END matched=%lu",
+                (unsigned long)matchedClasses]);
+
+        free(classes);
+    });
+}
+
 %hook MTLJSONAdapter
 
 + (id)modelOfClass:(Class)modelClass
@@ -9552,6 +9720,10 @@ fromJSONDictionary:(NSDictionary *)JSONDictionary
 - (id)modelFromJSONDictionary:(NSDictionary *)JSONDictionary
                         error:(NSError **)error {
     id result = %orig;
+    if (DYYYGetBool(@"DYYYEnableLiveCommerceProbe")) {
+    DYYYCommerceProbeMessageClassInventory();
+}
+
     if (DYYYGetBool(@"DYYYEnableLiveCommerceProbe") &&
     [JSONDictionary isKindOfClass:[NSDictionary class]]) {
     DYYYCommerceProbePromotionListSummary(
