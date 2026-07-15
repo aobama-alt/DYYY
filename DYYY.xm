@@ -10161,46 +10161,14 @@ static void DYYYCommerceProbeExactClass(
 
         dispatch_once(&onceToken, ^{
             DYYYCommerceProbeAppend(
-                @"PROBE_BUILD purchase-analysis-v3-installed"
-
-            DYYYCommerceProbeExactClass(
-                @"IESLLLivePurchaseAtmosphereViewModel");
-
-            DYYYCommerceProbeExactClass(
-                @"IESLLLivePurchaseAtmosphereConfig");
-
-            DYYYCommerceProbeExactClass(
-                @"IESLLLivePurchaseAtmosphereLayoutItem");
-
-            DYYYCommerceProbeExactClass(
-                @"IESLLLiveMessageCenterData");
+                @"PROBE_BUILD purchase-analysis-v3-installed");
         });
-
-        NSString *messageClass =
-            message
-                ? NSStringFromClass(
-                    object_getClass(message))
-                : @"<nil>";
-
-        NSString *subscriberClass =
-            subscriber
-                ? NSStringFromClass(
-                    object_getClass(subscriber))
-                : @"<nil>";
-
-        DYYYCommerceProbeAppend(
-            [NSString stringWithFormat:
-                @"FILTER_MESSAGE messageClass=%@ "
-                 "subscriberClass=%@",
-                messageClass,
-                subscriberClass]);
     }
 
     %orig(message, subscriber);
 }
 
 %end
-
 
 static void DYYYCommerceProbeExactClass(
     NSString *className
