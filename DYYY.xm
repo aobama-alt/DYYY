@@ -9687,6 +9687,213 @@ static void DYYYCommerceProbeMessageClassInventory(void) {
     });
 }
 
+static NSMutableSet<NSString *> *
+DYYYCommerceMessageClassPairs(void) {
+    static NSMutableSet<NSString *> *pairs;
+    static dispatch_once_t onceToken;
+
+    dispatch_once(&onceToken, ^{
+        pairs = [NSMutableSet set];
+    });
+
+    return pairs;
+}
+
+static void DYYYCommerceProbeMessageClassPair(
+    NSString *source,
+    id receiver,
+    id message,
+    id subscriber
+) {
+    if (!DYYYGetBool(@"DYYYEnableLiveCommerceProbe")) {
+        return;
+    }
+
+    NSString *receiverClass =
+        receiver
+            ? NSStringFromClass(object_getClass(receiver))
+            : @"<nil>";
+
+    NSString *messageClass =
+        message
+            ? NSStringFromClass(object_getClass(message))
+            : @"<nil>";
+
+    NSString *subscriberClass =
+        subscriber
+            ? NSStringFromClass(object_getClass(subscriber))
+            : @"<nil>";
+
+    NSString *signature =
+        [NSString stringWithFormat:@"%@|%@|%@|%@",
+            source ?: @"<nil>",
+            receiverClass,
+            messageClass,
+            subscriberClass];
+
+    BOOL firstOccurrence = NO;
+
+    @synchronized (DYYYCommerceMessageClassPairs()) {
+        if (![DYYYCommerceMessageClassPairs()
+                containsObject:signature]) {
+            [DYYYCommerceMessageClassPairs()
+                addObject:signature];
+            firstOccurrence = YES;
+        }
+    }
+
+    if (!firstOccurrence) return;
+
+    DYYYCommerceProbeAppend(
+        [NSString stringWithFormat:
+            @"MESSAGE_PAIR source=%@ receiver=%@ "
+             "message=%@ subscriber=%@",
+            source ?: @"<nil>",
+            receiverClass,
+            messageClass,
+            subscriberClass]);
+}
+
+%hook IESLLLiveMessageSubscriber
+
+- (void)onReceiveMessage:(id)message {
+    DYYYCommerceProbeMessageClassPair(
+        @"subscriber.onReceiveMessage",
+        self,
+        message,
+        nil);
+
+    %orig(message);
+}
+
+%end
+
+%hook IESLLLiveMessageFilterHandler
+
+- (void)handlePostMessage:(id)message
+           withSubscriber:(id)subscriber {
+    DYYYCommerceProbeMessageClassPair(
+        @"filter.handlePostMessage",
+        self,
+        message,
+        subscriber);
+
+    %orig(message, subscriber);
+}
+
+%end
+
+static BOOL DYYYCommercePurchaseKeyRelevant(
+    NSString *key
+) {
+    if (key.length == 0 ||
+        DYYYCommerceProbeSensitiveKey(key)) {
+        return NO;
+    }
+
+    NSString *lower = key.lowercaseString;
+
+    NSArray<NSString *> *wanted = @[
+        @"product",
+        @"promotion",
+        @"goods",
+        @"purchase",
+        @"count",
+        @"num",
+        @"sale",
+        @"price",
+        @"sku",
+        @"type",
+        @"data",
+        @"message",
+        @"content",
+        @"layout"
+    ];
+
+    for (NSString *word in wanted) {
+        if ([lower containsString:word]) return YES;
+    }
+
+    return NO;
+}
+
+static void DYYYCommerceProbePurchaseAtmosphere(
+    id object
+) {
+    if (!object) return;
+
+    Class cls = object_getClass(object);
+    NSUInteger level = 0;
+
+    DYYYCommerceProbeAppend(
+        [NSString stringWithFormat:
+            @"\n===== PURCHASE_ATMOSPHERE class=%@ =====",
+            NSStringFromClass(cls)]);
+
+    while (cls &&
+           cls != [NSObject class] &&
+           level < 6) {
+        unsigned int propertyCount = 0;
+        objc_property_t *properties =
+            class_copyPropertyList(
+                cls, &propertyCount);
+
+        for (unsigned int index = 0;
+             index < propertyCount;
+             index++) {
+            const char *rawName =
+                property_getName(properties[index]);
+
+            if (!rawName) continue;
+
+            NSString *key =
+                [NSString stringWithUTF8String:rawName];
+
+            if (!DYYYCommercePurchaseKeyRelevant(key)) {
+                continue;
+            }
+
+            id value = nil;
+
+            @try {
+                value = [object valueForKey:key];
+            } @catch (__unused NSException *exception) {
+                continue;
+            }
+
+            DYYYCommerceProbeAppend(
+                [NSString stringWithFormat:
+                    @"PURCHASE_FIELD %@.%@ = %@",
+                    NSStringFromClass(cls),
+                    key,
+                    DYYYCommerceProbeDescription(value)]);
+        }
+
+        free(properties);
+        cls = class_getSuperclass(cls);
+        level++;
+    }
+}
+
+%hook IESLLLivePurchaseAtmosphereViewModel
+
+- (void)setProductId:(id)productId {
+    %orig(productId);
+
+    if (DYYYGetBool(
+            @"DYYYEnableLiveCommerceProbe")) {
+        DYYYCommerceProbeAppend(
+            [NSString stringWithFormat:
+                @"PURCHASE_PRODUCT_ID value=%@",
+                DYYYCommerceProbeDescription(
+                    productId)]);
+
+        DYYYCommerceProbePurchaseAtmosphere(self);
+    }
+}
+
+%end
+
 %hook MTLJSONAdapter
 
 + (id)modelOfClass:(Class)modelClass
@@ -9721,7 +9928,7 @@ fromJSONDictionary:(NSDictionary *)JSONDictionary
                         error:(NSError **)error {
     id result = %orig;
     if (DYYYGetBool(@"DYYYEnableLiveCommerceProbe")) {
-    DYYYCommerceProbeMessageClassInventory();
+// DYYYCommerceProbeMessageClassInventory();
 }
 
     if (DYYYGetBool(@"DYYYEnableLiveCommerceProbe") &&
