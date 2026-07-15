@@ -10559,7 +10559,196 @@ static void DYYYCommerceProbePurchaseAtmosphere(
     }
 }
 
+static void DYYYCommerceProbePurchaseLayoutItem(
+    id item,
+    NSString *source
+) {
+    if (!item) {
+        DYYYCommerceProbeAppend(
+            [NSString stringWithFormat:
+                @"PURCHASE_LAYOUT source=%@ item=<nil>",
+                source ?: @"<nil>"]);
+        return;
+    }
+
+    id type =
+        DYYYCommerceProbeValue(item, @"type");
+
+    id num =
+        DYYYCommerceProbeValue(item, @"num");
+
+    id text =
+        DYYYCommerceProbeValue(item, @"text");
+
+    DYYYCommerceProbeAppend(
+        [NSString stringWithFormat:
+            @"PURCHASE_LAYOUT source=%@ class=%@ "
+             "type=%@ num=%@ text=%@",
+            source ?: @"<nil>",
+            NSStringFromClass(object_getClass(item)),
+            DYYYCommerceProbeDescription(type),
+            DYYYCommerceProbeDescription(num),
+            DYYYCommerceProbeDescription(text)]);
+}
+
+static void DYYYCommerceProbePurchaseViewModel(
+    id viewModel,
+    NSString *source
+) {
+    if (!viewModel) return;
+
+    id originData =
+        DYYYCommerceProbeValue(
+            viewModel, @"originData");
+
+    id productId =
+        DYYYCommerceProbeValue(
+            viewModel, @"productId");
+
+    id dataType =
+        DYYYCommerceProbeValue(
+            viewModel, @"dataType");
+
+    id animationType =
+        DYYYCommerceProbeValue(
+            viewModel, @"animationType");
+
+    id from =
+        DYYYCommerceProbeValue(
+            viewModel, @"from");
+
+    id showOrHide =
+        DYYYCommerceProbeValue(
+            viewModel, @"showOrHide");
+
+    id trackingParams =
+        DYYYCommerceProbeValue(
+            viewModel, @"trackingParams");
+
+    id numberItem =
+        DYYYCommerceProbeValue(
+            viewModel, @"normalXNumberItem");
+
+    NSArray *normalItems =
+        DYYYCommerceProbeValue(
+            viewModel, @"normalLayoutItems");
+
+    NSArray *nextItems =
+        DYYYCommerceProbeValue(
+            viewModel, @"nextStateLayoutItems");
+
+    DYYYCommerceProbeAppend(
+        [NSString stringWithFormat:
+            @"\n===== PURCHASE_VM_UPDATE source=%@ "
+             "class=%@ =====",
+            source ?: @"<nil>",
+            NSStringFromClass(
+                object_getClass(viewModel))]);
+
+    DYYYCommerceProbeAppend(
+        [NSString stringWithFormat:
+            @"PURCHASE_VM productId=%@ dataType=%@ "
+             "animationType=%@ from=%@ showOrHide=%@ "
+             "normalItems=%lu nextItems=%lu",
+            DYYYCommerceProbeDescription(productId),
+            DYYYCommerceProbeDescription(dataType),
+            DYYYCommerceProbeDescription(animationType),
+            DYYYCommerceProbeDescription(from),
+            DYYYCommerceProbeDescription(showOrHide),
+            (unsigned long)(
+                [normalItems isKindOfClass:[NSArray class]]
+                    ? normalItems.count
+                    : 0),
+            (unsigned long)(
+                [nextItems isKindOfClass:[NSArray class]]
+                    ? nextItems.count
+                    : 0)]);
+
+    if ([originData isKindOfClass:[NSDictionary class]]) {
+        DYYYCommerceProbeAppend(
+            [NSString stringWithFormat:
+                @"PURCHASE_ORIGIN keys=%@",
+                [(NSDictionary *)originData allKeys]]);
+
+        DYYYCommerceProbeRelevantMessageValue(
+            originData,
+            @"PURCHASE_ORIGIN",
+            0);
+    } else {
+        DYYYCommerceProbeAppend(
+            [NSString stringWithFormat:
+                @"PURCHASE_ORIGIN class=%@ value=%@",
+                originData
+                    ? NSStringFromClass(
+                        object_getClass(originData))
+                    : @"<nil>",
+                DYYYCommerceProbeDescription(
+                    originData)]);
+    }
+
+    if ([trackingParams
+            isKindOfClass:[NSDictionary class]]) {
+        DYYYCommerceProbeAppend(
+            [NSString stringWithFormat:
+                @"PURCHASE_TRACK keys=%@",
+                [(NSDictionary *)trackingParams allKeys]]);
+
+        DYYYCommerceProbeRelevantMessageValue(
+            trackingParams,
+            @"PURCHASE_TRACK",
+            0);
+    }
+
+    DYYYCommerceProbePurchaseLayoutItem(
+        numberItem,
+        @"normalXNumberItem");
+
+    NSUInteger normalCount =
+        [normalItems isKindOfClass:[NSArray class]]
+            ? MIN(normalItems.count, (NSUInteger)30)
+            : 0;
+
+    for (NSUInteger index = 0;
+         index < normalCount;
+         index++) {
+        DYYYCommerceProbePurchaseLayoutItem(
+            normalItems[index],
+            [NSString stringWithFormat:
+                @"normalLayoutItems[%lu]",
+                (unsigned long)index]);
+    }
+
+    NSUInteger nextCount =
+        [nextItems isKindOfClass:[NSArray class]]
+            ? MIN(nextItems.count, (NSUInteger)30)
+            : 0;
+
+    for (NSUInteger index = 0;
+         index < nextCount;
+         index++) {
+        DYYYCommerceProbePurchaseLayoutItem(
+            nextItems[index],
+            [NSString stringWithFormat:
+                @"nextStateLayoutItems[%lu]",
+                (unsigned long)index]);
+    }
+}
+
 %hook IESLLLivePurchaseAtmosphereViewModel
+
+- (void)setOriginData:(id)originData {
+    %orig(originData);
+
+    if (DYYYGetBool(
+            @"DYYYEnableLiveCommerceProbe")) {
+        DYYYCommerceProbeAppend(
+            @"PROBE_BUILD purchase-atmosphere-v2");
+
+        DYYYCommerceProbePurchaseViewModel(
+            self,
+            @"setOriginData");
+    }
+}
 
 - (void)setProductId:(id)productId {
     %orig(productId);
@@ -10572,11 +10761,51 @@ static void DYYYCommerceProbePurchaseAtmosphere(
                 DYYYCommerceProbeDescription(
                     productId)]);
 
-        DYYYCommerceProbePurchaseAtmosphere(self);
+        DYYYCommerceProbePurchaseViewModel(
+            self,
+            @"setProductId");
+    }
+}
+
+- (void)setNormalXNumberItem:(id)item {
+    %orig(item);
+
+    if (DYYYGetBool(
+            @"DYYYEnableLiveCommerceProbe")) {
+        DYYYCommerceProbePurchaseLayoutItem(
+            item,
+            @"setNormalXNumberItem");
+
+        DYYYCommerceProbePurchaseViewModel(
+            self,
+            @"setNormalXNumberItem");
+    }
+}
+
+- (void)setNormalLayoutItems:(id)items {
+    %orig(items);
+
+    if (DYYYGetBool(
+            @"DYYYEnableLiveCommerceProbe")) {
+        DYYYCommerceProbePurchaseViewModel(
+            self,
+            @"setNormalLayoutItems");
+    }
+}
+
+- (void)setNextStateLayoutItems:(id)items {
+    %orig(items);
+
+    if (DYYYGetBool(
+            @"DYYYEnableLiveCommerceProbe")) {
+        DYYYCommerceProbePurchaseViewModel(
+            self,
+            @"setNextStateLayoutItems");
     }
 }
 
 %end
+
 
 %hook MTLJSONAdapter
 
