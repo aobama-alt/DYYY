@@ -10162,6 +10162,157 @@ if ([eventText isEqualToString:@"live_life_set_data"]) {
 
 %end
 
+static void DYYYCommerceProbeExactClass(
+    NSString *className
+) {
+    static NSMutableSet<NSString *> *loggedClasses;
+    static dispatch_once_t onceToken;
+
+    dispatch_once(&onceToken, ^{
+        loggedClasses = [NSMutableSet set];
+    });
+
+    @synchronized (loggedClasses) {
+        if ([loggedClasses containsObject:className]) {
+            return;
+        }
+        [loggedClasses addObject:className];
+    }
+
+    Class cls = NSClassFromString(className);
+    if (!cls) {
+        DYYYCommerceProbeAppend(
+            [NSString stringWithFormat:
+                @"EXACT_CLASS unavailable=%@", className]);
+        return;
+    }
+
+    DYYYCommerceProbeAppend(
+        [NSString stringWithFormat:
+            @"\n===== EXACT_CLASS %@ =====",
+            className]);
+
+    Class current = cls;
+    NSUInteger level = 0;
+
+    while (current &&
+           current != [NSObject class] &&
+           level < 6) {
+        unsigned int propertyCount = 0;
+        objc_property_t *properties =
+            class_copyPropertyList(
+                current, &propertyCount);
+
+        for (unsigned int index = 0;
+             index < propertyCount;
+             index++) {
+            const char *name =
+                property_getName(properties[index]);
+
+            if (!name) continue;
+
+            DYYYCommerceProbeAppend(
+                [NSString stringWithFormat:
+                    @"EXACT_PROPERTY class=%@ name=%s",
+                    NSStringFromClass(current),
+                    name]);
+        }
+
+        free(properties);
+
+        unsigned int ivarCount = 0;
+        Ivar *ivars =
+            class_copyIvarList(current, &ivarCount);
+
+        for (unsigned int index = 0;
+             index < ivarCount;
+             index++) {
+            const char *name =
+                ivar_getName(ivars[index]);
+
+            const char *type =
+                ivar_getTypeEncoding(ivars[index]);
+
+            if (!name) continue;
+
+            DYYYCommerceProbeAppend(
+                [NSString stringWithFormat:
+                    @"EXACT_IVAR class=%@ name=%s type=%s",
+                    NSStringFromClass(current),
+                    name,
+                    type ?: "<nil>"]);
+        }
+
+        free(ivars);
+
+        unsigned int methodCount = 0;
+        Method *methods =
+            class_copyMethodList(current, &methodCount);
+
+        for (unsigned int index = 0;
+             index < methodCount;
+             index++) {
+            SEL selector =
+                method_getName(methods[index]);
+
+            DYYYCommerceProbeAppend(
+                [NSString stringWithFormat:
+                    @"EXACT_METHOD class=%@ selector=%@",
+                    NSStringFromClass(current),
+                    NSStringFromSelector(selector)]);
+        }
+
+        free(methods);
+        current = class_getSuperclass(current);
+        level++;
+    }
+}
+
+%hook IESLLLiveMessageCenter
+
+- (void)handleEventCenter:(id)event
+                   params:(id)params {
+    if (DYYYGetBool(@"DYYYEnableLiveCommerceProbe")) {
+        DYYYCommerceProbeExactClass(
+            @"IESLLLivePurchaseAtmosphereViewModel");
+
+        DYYYCommerceProbeExactClass(
+            @"IESLLLivePurchaseAtmosphereConfig");
+
+        DYYYCommerceProbeExactClass(
+            @"IESLLLiveMessageCenterData");
+
+        NSString *eventText =
+            DYYYCommerceMessagePrimitive(event);
+
+        NSArray *keys =
+            [params isKindOfClass:[NSDictionary class]]
+                ? [(NSDictionary *)params allKeys]
+                : @[];
+
+        DYYYCommerceProbeAppend(
+            [NSString stringWithFormat:
+                @"EVENT_CENTER event=%@ "
+                 "paramsClass=%@ paramsKeys=%@",
+                eventText,
+                params
+                    ? NSStringFromClass(
+                        object_getClass(params))
+                    : @"<nil>",
+                keys]);
+
+        DYYYCommerceProbeRelevantMessageValue(
+            params,
+            [NSString stringWithFormat:
+                @"EVENT_CENTER[%@]", eventText],
+            0);
+    }
+
+    %orig(event, params);
+}
+
+%end
+
 %hook IESLLLiveMessage
 
 + (id)messageWithEventName:(id)eventName
@@ -10188,6 +10339,8 @@ if ([eventText isEqualToString:@"live_life_set_data"]) {
                     params:(id)params
                      extra:(id)extra {
     id message = %orig(eventName, params, extra);
+    return message;
+
 
     if (!DYYYGetBool(@"DYYYEnableLiveCommerceProbe")) {
         return message;
