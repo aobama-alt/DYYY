@@ -8941,6 +8941,59 @@ static void DYYYCommerceProbeTargetObject(
     }
 }
 
+static void DYYYCommerceProbeJSONMappings(void) {
+    static dispatch_once_t onceToken;
+
+    dispatch_once(&onceToken, ^{
+        NSArray<NSString *> *classNames = @[
+            @"IESECLiveGoodsListPageModelV2",
+            @"IESECLiveGoodsModelV2",
+            @"IESECLiveGoodsInfoModel",
+            @"IESECLiveGoodsInfoItem",
+            @"IESECLiveGoodsPriceModel",
+            @"IESECLiveGoodsProductModel",
+            @"IESECLiveGoodsHotSaleModel"
+        ];
+
+        SEL selector =
+            NSSelectorFromString(@"JSONKeyPathsByPropertyKey");
+
+        for (NSString *className in classNames) {
+            Class cls = NSClassFromString(className);
+
+            if (!cls || ![cls respondsToSelector:selector]) {
+                DYYYCommerceProbeAppend(
+                    [NSString stringWithFormat:
+                        @"JSON_MAPPING class=%@ unavailable",
+                        className]);
+                continue;
+            }
+
+            NSDictionary *mapping = nil;
+
+            @try {
+                IMP implementation =
+                    [cls methodForSelector:selector];
+
+                NSDictionary *(*function)(
+                    id,
+                    SEL
+                ) = (void *)implementation;
+
+                mapping = function(cls, selector);
+            } @catch (__unused NSException *exception) {
+                mapping = nil;
+            }
+
+            DYYYCommerceProbeAppend(
+                [NSString stringWithFormat:
+                    @"JSON_MAPPING class=%@ mapping=%@",
+                    className,
+                    mapping ?: @{}]);
+        }
+    });
+}
+
 static char kDYYYV2GoodsPageSignatureKey;
 
 static NSMutableSet<NSString *> *DYYYV2LoggedPromotions(void) {
@@ -8962,6 +9015,8 @@ static void DYYYCommerceProbeV2PageSnapshot(
         ![goodsList isKindOfClass:[NSArray class]]) {
         return;
     }
+
+    DYYYCommerceProbeJSONMappings();
 
     DYYYCommerceProbeAppend(
         [NSString stringWithFormat:
