@@ -10194,40 +10194,88 @@ if ([eventText isEqualToString:@"live_life_set_data"]) {
                      extra:(id)extra {
     id message = %orig(eventName, params, extra);
 
-    if ([eventName isKindOfClass:[NSString class]] &&
-    [(NSString *)eventName
-        isEqualToString:@"live_life_set_data"]) {
-    DYYYCommerceProbeLiveLifeSetData(params);
-}
+    if (!DYYYGetBool(@"DYYYEnableLiveCommerceProbe")) {
+        return message;
+    }
 
-    if (DYYYGetBool(@"DYYYEnableLiveCommerceProbe")) {
-        NSArray *keys =
-            [params isKindOfClass:[NSDictionary class]]
-                ? [(NSDictionary *)params allKeys]
-                : @[];
+    DYYYCommerceProbeAppend(
+        [NSString stringWithFormat:
+            @"PROBE_BUILD life-data-v2 event=%@",
+            DYYYCommerceMessagePrimitive(eventName)]);
+
+    NSArray *keys =
+        [params isKindOfClass:[NSDictionary class]]
+            ? [(NSDictionary *)params allKeys]
+            : @[];
+
+    DYYYCommerceProbeAppend(
+        [NSString stringWithFormat:
+            @"LIVE_MESSAGE_CREATED_EXTRA "
+             "event=%@ paramsClass=%@ paramsKeys=%@",
+            DYYYCommerceMessagePrimitive(eventName),
+            params
+                ? NSStringFromClass(object_getClass(params))
+                : @"<nil>",
+            keys]);
+
+    if ([eventName isKindOfClass:[NSString class]] &&
+        [(NSString *)eventName
+            isEqualToString:@"live_life_set_data"] &&
+        [params isKindOfClass:[NSDictionary class]]) {
+
+        NSDictionary *dictionary = params;
+        id dataName = dictionary[@"data_name"];
+        id dataValue = dictionary[@"data"];
+
+        NSString *dataClass =
+            dataValue
+                ? NSStringFromClass(object_getClass(dataValue))
+                : @"<nil>";
+
+        NSUInteger dataLength = 0;
+
+        if ([dataValue isKindOfClass:[NSString class]]) {
+            dataLength = [(NSString *)dataValue length];
+        } else if ([dataValue isKindOfClass:[NSData class]]) {
+            dataLength = [(NSData *)dataValue length];
+        } else if ([dataValue
+                       respondsToSelector:@selector(count)]) {
+            @try {
+                dataLength =
+                    (NSUInteger)[dataValue count];
+            } @catch (__unused NSException *exception) {
+                dataLength = 0;
+            }
+        }
 
         DYYYCommerceProbeAppend(
             [NSString stringWithFormat:
-                @"LIVE_MESSAGE_CREATED_EXTRA "
-                 "event=%@ paramsKeys=%@",
-                DYYYCommerceMessagePrimitive(eventName),
-                keys]);
+                @"LIVE_LIFE_SET_DATA name=%@ "
+                 "dataClass=%@ dataLength=%lu",
+                DYYYCommerceMessagePrimitive(dataName),
+                dataClass,
+                (unsigned long)dataLength]);
 
-        DYYYCommerceProbeRelevantMessageValue(
-            params,
-            @"LIVE_MESSAGE_CREATED_EXTRA.params",
-            0);
+        id structuredValue =
+            DYYYCommerceJSONObjectFromValue(dataValue);
 
-        DYYYCommerceProbeRelevantMessageValue(
-            extra,
-            @"LIVE_MESSAGE_CREATED_EXTRA.extra",
-            0);
+        if (structuredValue) {
+            DYYYCommerceProbeRelevantMessageValue(
+                structuredValue,
+                [NSString stringWithFormat:
+                    @"LIVE_LIFE_DATA[%@]",
+                    DYYYCommerceMessagePrimitive(dataName)],
+                0);
+        } else if (dataValue &&
+                   ![dataValue isKindOfClass:[NSString class]] &&
+                   ![dataValue isKindOfClass:[NSNumber class]] &&
+                   ![dataValue isKindOfClass:[NSData class]]) {
+            DYYYCommerceProbeLiveLifeSetData(params);
+        }
     }
 
     return message;
 }
-
-%end
 
 static BOOL DYYYCommercePurchaseKeyRelevant(
     NSString *key
@@ -10429,7 +10477,7 @@ fromJSONDictionary:(NSDictionary *)JSONDictionary
 
 - (void)setCurHotsaleItem:(id)item {
     %orig(item);
-    return; // 暂停热卖 UI 日志
+    return;
 
     if (DYYYGetBool(@"DYYYEnableLiveCommerceProbe")) {
         DYYYCommerceProbeHotSaleUpdate(self, item);
