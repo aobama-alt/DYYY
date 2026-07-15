@@ -8351,6 +8351,132 @@ static void DYYYCommerceProbeClassHierarchy(
     }
 }
 
+static id DYYYCommerceProbeValue(id object, NSString *key) {
+    if (!object || key.length == 0) return nil;
+
+    @try {
+        return [object valueForKey:key];
+    } @catch (__unused NSException *exception) {
+        return nil;
+    }
+}
+
+static void DYYYCommerceProbeDictionary(
+    NSDictionary *dictionary,
+    NSString *path
+) {
+    if (![dictionary isKindOfClass:[NSDictionary class]]) return;
+
+    for (id rawKey in dictionary) {
+        NSString *key = [rawKey description];
+        if (DYYYCommerceProbeSensitiveKey(key)) continue;
+
+        id value = dictionary[rawKey];
+        DYYYCommerceProbeAppend(
+            [NSString stringWithFormat:@"%@[%@] = %@",
+                path,
+                key,
+                DYYYCommerceProbeDescription(value)]);
+    }
+}
+
+static void DYYYCommerceProbeGoodsModel(id goodsModel) {
+    if (!goodsModel) return;
+
+    DYYYCommerceProbeAppend(
+        [NSString stringWithFormat:
+            @"\n----- TARGET_GOODS_MODEL class=%@ -----",
+            NSStringFromClass([goodsModel class])]);
+
+    NSArray<NSString *> *keys = @[
+        @"soldCount",
+        @"soldHint",
+        @"count",
+        @"countString",
+        @"minPrice",
+        @"maxPrice",
+        @"marketPrice",
+        @"minPriceStr",
+        @"priceHeader",
+        @"priceDescription",
+        @"trackParams",
+        @"entranceModel",
+        @"extra",
+        @"narrowCardModel",
+        @"categoryInfoModel",
+        @"goodsBaseModel",
+        @"productID",
+        @"productId",
+        @"promotionID",
+        @"promotionId",
+        @"roomID",
+        @"roomId",
+        @"liveSales",
+        @"roomSales",
+        @"sales",
+        @"salesNum",
+        @"soldNum",
+        @"orderCount",
+        @"payCount",
+        @"payAmount",
+        @"gmv"
+    ];
+
+    for (NSString *key in keys) {
+        id value = DYYYCommerceProbeValue(goodsModel, key);
+        DYYYCommerceProbeAppend(
+            [NSString stringWithFormat:@"TARGET goods.%@ = %@",
+                key,
+                DYYYCommerceProbeDescription(value)]);
+    }
+
+    id entranceModel =
+        DYYYCommerceProbeValue(goodsModel, @"entranceModel");
+    id entranceTrackParams =
+        DYYYCommerceProbeValue(entranceModel, @"trackParams");
+
+    DYYYCommerceProbeDictionary(
+        entranceTrackParams,
+        @"TARGET goods.entranceModel.trackParams");
+
+    id goodsTrackParams =
+        DYYYCommerceProbeValue(goodsModel, @"trackParams");
+
+    DYYYCommerceProbeDictionary(
+        goodsTrackParams,
+        @"TARGET goods.trackParams");
+
+    NSArray *nestedObjects = @[
+        DYYYCommerceProbeValue(goodsModel, @"narrowCardModel")
+            ?: [NSNull null],
+        DYYYCommerceProbeValue(goodsModel, @"extra")
+            ?: [NSNull null],
+        entranceModel ?: [NSNull null]
+    ];
+
+    for (id nested in nestedObjects) {
+        if (nested == [NSNull null]) continue;
+
+        NSHashTable *visited =
+            [NSHashTable hashTableWithOptions:
+                NSPointerFunctionsObjectPointerPersonality];
+
+        DYYYCommerceProbeObject(
+            nested,
+            [NSString stringWithFormat:@"TARGET.%@",
+                NSStringFromClass([nested class])],
+            0,
+            visited);
+
+        DYYYCommerceProbeClassHierarchy(
+            nested,
+            [NSString stringWithFormat:@"TARGET.%@",
+                NSStringFromClass([nested class])],
+            visited);
+    }
+}
+
+
 static void DYYYCommerceProbeView(UIView *view) {
     if (!DYYYGetBool(@"DYYYEnableLiveCommerceProbe") || !view.window) return;
 
@@ -8387,6 +8513,45 @@ static void DYYYCommerceProbeView(UIView *view) {
         UIView *current = queue.firstObject;
         [queue removeObjectAtIndex:0];
         scanned++;
+NSString *targetClassName =
+    NSStringFromClass(current.class);
+
+if ([targetClassName containsString:@"IESECLiveCardSizeInfoView"]) {
+    id goodsModel =
+        DYYYCommerceProbeValue(current, @"goodsModel");
+
+    if (!goodsModel) {
+        goodsModel =
+            DYYYCommerceProbeValue(current, @"_goodsModel");
+    }
+
+    DYYYCommerceProbeGoodsModel(goodsModel);
+
+    id liveContext =
+        DYYYCommerceProbeValue(current, @"liveContext");
+
+    if (!liveContext) {
+        liveContext =
+            DYYYCommerceProbeValue(current, @"_liveContext");
+    }
+
+    if (liveContext) {
+        NSHashTable *contextVisited =
+            [NSHashTable hashTableWithOptions:
+                NSPointerFunctionsObjectPointerPersonality];
+
+        DYYYCommerceProbeObject(
+            liveContext,
+            @"TARGET.liveContext",
+            0,
+            contextVisited);
+
+        DYYYCommerceProbeClassHierarchy(
+            liveContext,
+            @"TARGET.liveContext",
+            contextVisited);
+    }
+}
 
 NSString *className = NSStringFromClass(current.class);
 NSString *lowerClassName = className.lowercaseString;
