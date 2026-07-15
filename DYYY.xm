@@ -8406,24 +8406,6 @@ if ([lowerClassName containsString:@"live"] ||
         visited);
 }
 
-NSString *className = NSStringFromClass(current.class);
-NSString *lowerClassName = className.lowercaseString;
-
-if ([lowerClassName containsString:@"live"] ||
-    [lowerClassName containsString:@"goods"] ||
-    [lowerClassName containsString:@"product"] ||
-    [lowerClassName containsString:@"commerce"] ||
-    [lowerClassName containsString:@"promotion"] ||
-    [lowerClassName containsString:@"lynx"]) {
-    DYYYCommerceProbeAppend(
-        [NSString stringWithFormat:@"VIEW_CLASS = %@", className]);
-
-    DYYYCommerceProbeClassHierarchy(
-        current,
-        [NSString stringWithFormat:@"subview.%@", className],
-        visited);
-}
-
         if ([current isKindOfClass:[UILabel class]]) {
             NSString *text = ((UILabel *)current).text;
             if (text.length > 0) {
