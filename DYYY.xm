@@ -8648,6 +8648,7 @@ static void DYYYCommerceProbeHotSaleView(id hotSaleView) {
 
 static void DYYYCommerceProbeView(UIView *view) {
     if (!DYYYGetBool(@"DYYYEnableLiveCommerceProbe") || !view.window) return;
+return; // 暂停旧的 UIView 扫描，避免日志过大
 
     NSTimeInterval now = NSDate.date.timeIntervalSince1970;
     NSNumber *last = objc_getAssociatedObject(
@@ -8752,6 +8753,73 @@ if ([lowerClassName containsString:@"live"] ||
         [queue addObjectsFromArray:current.subviews];
     }
 }
+
+static char kDYYYV2GoodsPageSignatureKey;
+
+static void DYYYCommerceProbeV2PageSnapshot(
+    id page,
+    NSArray *goodsList
+) {
+    if (!page || ![goodsList isKindOfClass:[NSArray class]]) return;
+
+    DYYYCommerceProbeAppend(
+        [NSString stringWithFormat:
+            @"\n===== V2_PAGE_SNAPSHOT count=%lu pageClass=%@ =====",
+            (unsigned long)goodsList.count,
+            NSStringFromClass([page class])]);
+
+    NSUInteger count = MIN(goodsList.count, (NSUInteger)200);
+    for (NSUInteger index = 0; index < count; index++) {
+        DYYYCommerceProbeV2Goods(goodsList[index], index, NO);
+    }
+
+    id introducingGoods =
+        DYYYCommerceProbeValue(page, @"introducingGoodsModel");
+
+    if (introducingGoods) {
+        DYYYCommerceProbeV2Goods(introducingGoods, 0, YES);
+    }
+}
+
+%hook IESECLiveGoodsListPageModelV2
+
+- (NSArray *)goodsList {
+    NSArray *goodsList = %orig;
+
+    if (!DYYYGetBool(@"DYYYEnableLiveCommerceProbe") ||
+        ![goodsList isKindOfClass:[NSArray class]] ||
+        goodsList.count == 0) {
+        return goodsList;
+    }
+
+    id first = goodsList.firstObject;
+    id last = goodsList.lastObject;
+
+    NSString *signature =
+        [NSString stringWithFormat:@"%p-%lu-%p-%p",
+            goodsList,
+            (unsigned long)goodsList.count,
+            first,
+            last];
+
+    NSString *previous =
+        objc_getAssociatedObject(
+            self, &kDYYYV2GoodsPageSignatureKey);
+
+    if (![previous isEqualToString:signature]) {
+        objc_setAssociatedObject(
+            self,
+            &kDYYYV2GoodsPageSignatureKey,
+            signature,
+            OBJC_ASSOCIATION_COPY_NONATOMIC);
+
+        DYYYCommerceProbeV2PageSnapshot(self, goodsList);
+    }
+
+    return goodsList;
+}
+
+%end
 
 // 隐藏直播间商品和推广
 %hook IESECLivePluginLayoutView
