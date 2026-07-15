@@ -9103,6 +9103,7 @@ static void DYYYCommerceProbeV2PageSnapshot(
 
 - (NSArray *)goodsList {
     NSArray *goodsList = %orig;
+    return goodsList; // 暂停商品列表大范围日志
 
     if (!DYYYGetBool(@"DYYYEnableLiveCommerceProbe") ||
         ![goodsList isKindOfClass:[NSArray class]] ||
@@ -9135,6 +9136,87 @@ static void DYYYCommerceProbeV2PageSnapshot(
     }
 
     return goodsList;
+}
+
+%end
+
+static NSString *DYYYCommerceProbeSimpleValue(
+    id object,
+    NSString *key
+) {
+    id value = DYYYCommerceProbeValue(object, key);
+    return DYYYCommerceProbeDescription(value);
+}
+
+static void DYYYCommerceProbeHotSaleUpdate(
+    id view,
+    id item
+) {
+    if (!DYYYGetBool(@"DYYYEnableLiveCommerceProbe")) return;
+
+    id label =
+        DYYYCommerceProbeValue(view, @"saleNumLabel");
+
+    NSString *labelText =
+        [label isKindOfClass:[UILabel class]]
+            ? ((UILabel *)label).text
+            : nil;
+
+    DYYYCommerceProbeAppend(
+        [NSString stringWithFormat:
+            @"\n===== HOT_SALE_UPDATE "
+             "time=%.3f view=%@ item=%@ =====",
+            NSDate.date.timeIntervalSince1970,
+            NSStringFromClass([view class]),
+            item ? NSStringFromClass([item class]) : @"<nil>"]);
+
+    NSArray<NSString *> *keys = @[
+        @"saleNum",
+        @"saleNumStr",
+        @"dataType",
+        @"hotsaleType",
+        @"lastTrackType",
+        @"shouldCheckNum",
+        @"priceFormatStyle",
+        @"followUpItems"
+    ];
+
+    for (NSString *key in keys) {
+        DYYYCommerceProbeAppend(
+            [NSString stringWithFormat:
+                @"HOT_ITEM %@ = %@",
+                key,
+                DYYYCommerceProbeSimpleValue(item, key)]);
+    }
+
+    DYYYCommerceProbeAppend(
+        [NSString stringWithFormat:
+            @"HOT_LABEL text=%@",
+            labelText ?: @"<nil>"]);
+
+    NSArray<NSString *> *stack =
+        [NSThread callStackSymbols];
+
+    NSUInteger count =
+        MIN(stack.count, (NSUInteger)40);
+
+    for (NSUInteger index = 0; index < count; index++) {
+        DYYYCommerceProbeAppend(
+            [NSString stringWithFormat:
+                @"HOT_STACK[%lu] %@",
+                (unsigned long)index,
+                stack[index]]);
+    }
+}
+
+%hook IESECLiveHotSaleView
+
+- (void)setCurHotsaleItem:(id)item {
+    %orig(item);
+
+    if (DYYYGetBool(@"DYYYEnableLiveCommerceProbe")) {
+        DYYYCommerceProbeHotSaleUpdate(self, item);
+    }
 }
 
 %end
