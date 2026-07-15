@@ -8067,11 +8067,14 @@ static BOOL DYYYCommerceProbeSensitiveKey(NSString *key) {
 static BOOL DYYYCommerceProbeInterestingKey(NSString *key) {
     NSString *value = key.lowercaseString;
     NSArray *wanted = @[
-        @"model", @"viewmodel", @"data", @"item", @"goods",
-        @"product", @"promotion", @"sku", @"price", @"sale",
-        @"sold", @"order", @"pay", @"amount", @"gmv",
-        @"room", @"commerce", @"cart", @"shelf", @"stock"
-    ];
+    @"model", @"viewmodel", @"data", @"item", @"goods",
+    @"product", @"promotion", @"sku", @"price", @"sale",
+    @"sold", @"order", @"pay", @"amount", @"gmv",
+    @"room", @"commerce", @"cart", @"shelf", @"stock",
+    @"extra", @"track", @"log", @"event", @"params",
+    @"schema", @"lynx", @"raw", @"info", @"detail",
+    @"hotsale", @"count", @"num", @"volume"
+];
     for (NSString *word in wanted) {
         if ([value containsString:word]) return YES;
     }
@@ -8148,8 +8151,71 @@ static void DYYYCommerceProbeObject(id object,
                                     NSString *path,
                                     NSUInteger depth,
                                     NSHashTable *visited) {
-    if (!object || depth > 2 || [visited containsObject:object]) return;
+    if (!object || depth > 4 || [visited containsObject:object]) return;
     [visited addObject:object];
+
+    if ([object isKindOfClass:[NSDictionary class]]) {
+    NSDictionary *dictionary = object;
+    NSUInteger scanned = 0;
+
+    for (id rawKey in dictionary) {
+        if (scanned++ >= 80) break;
+
+        NSString *key = [rawKey description];
+        if (DYYYCommerceProbeSensitiveKey(key)) continue;
+
+        id value = dictionary[rawKey];
+        NSString *childPath =
+            [NSString stringWithFormat:@"%@[%@]", path, key];
+
+        BOOL interesting =
+            DYYYCommerceProbeInterestingKey(key) ||
+            DYYYCommerceProbeInterestingKey(path);
+
+        if (interesting) {
+            DYYYCommerceProbeAppend(
+                [NSString stringWithFormat:@"%@ = %@",
+                    childPath,
+                    DYYYCommerceProbeDescription(value)]);
+        }
+
+        if (value &&
+            ![value isKindOfClass:[NSString class]] &&
+            ![value isKindOfClass:[NSNumber class]] &&
+            ![value isKindOfClass:[NSData class]]) {
+            DYYYCommerceProbeObject(
+                value, childPath, depth + 1, visited);
+        }
+    }
+    return;
+}
+
+if ([object isKindOfClass:[NSArray class]]) {
+    NSArray *array = object;
+    NSUInteger count = MIN(array.count, (NSUInteger)30);
+
+    for (NSUInteger index = 0; index < count; index++) {
+        id value = array[index];
+        NSString *childPath =
+            [NSString stringWithFormat:@"%@[%lu]",
+                path, (unsigned long)index];
+
+        DYYYCommerceProbeAppend(
+            [NSString stringWithFormat:@"%@ = %@",
+                childPath,
+                DYYYCommerceProbeDescription(value)]);
+
+        if (value &&
+            ![value isKindOfClass:[NSString class]] &&
+            ![value isKindOfClass:[NSNumber class]] &&
+            ![value isKindOfClass:[NSData class]]) {
+            DYYYCommerceProbeObject(
+                value, childPath, depth + 1, visited);
+        }
+    }
+    return;
+}
+
 
     Class cls = object_getClass(object);
     DYYYCommerceProbeAppend(
@@ -8224,6 +8290,67 @@ static void DYYYCommerceProbeObject(id object,
     free(ivars);
 }
 
+static void DYYYCommerceProbeClassHierarchy(
+    id object,
+    NSString *path,
+    NSHashTable *visited
+) {
+    if (!object) return;
+
+    Class cls = object_getClass(object);
+    NSUInteger level = 0;
+
+    while (cls && cls != [NSObject class] && level < 8) {
+        DYYYCommerceProbeAppend(
+            [NSString stringWithFormat:
+                @"CLASS_HIERARCHY %@ level=%lu class=%@",
+                path,
+                (unsigned long)level,
+                NSStringFromClass(cls)]);
+
+        unsigned int count = 0;
+        Ivar *ivars = class_copyIvarList(cls, &count);
+
+        for (unsigned int index = 0; index < count; index++) {
+            const char *name = ivar_getName(ivars[index]);
+            const char *type = ivar_getTypeEncoding(ivars[index]);
+
+            if (!name || !type || type[0] != '@') continue;
+
+            NSString *key = [NSString stringWithUTF8String:name];
+            if (DYYYCommerceProbeSensitiveKey(key)) continue;
+
+            id value = nil;
+            @try {
+                value = object_getIvar(object, ivars[index]);
+            } @catch (__unused NSException *exception) {
+                continue;
+            }
+
+            NSString *childPath =
+                [NSString stringWithFormat:@"%@.%@",
+                    path, key];
+
+            DYYYCommerceProbeAppend(
+                [NSString stringWithFormat:@"%@ = %@",
+                    childPath,
+                    DYYYCommerceProbeDescription(value)]);
+
+            if (value &&
+                (DYYYCommerceProbeInterestingKey(key) ||
+                 [value isKindOfClass:[NSDictionary class]] ||
+                 [value isKindOfClass:[NSArray class]])) {
+                DYYYCommerceProbeObject(
+                    value, childPath, 1, visited);
+            }
+        }
+
+        free(ivars);
+        cls = class_getSuperclass(cls);
+        level++;
+    }
+}
+
 static void DYYYCommerceProbeView(UIView *view) {
     if (!DYYYGetBool(@"DYYYEnableLiveCommerceProbe") || !view.window) return;
 
@@ -8249,6 +8376,8 @@ static void DYYYCommerceProbeView(UIView *view) {
     NSHashTable *visited =
         [NSHashTable hashTableWithOptions:NSPointerFunctionsObjectPointerPersonality];
     DYYYCommerceProbeObject(view, @"view", 0, visited);
+    DYYYCommerceProbeClassHierarchy(view, @"view", visited);
+
 
     NSMutableArray<UIView *> *queue =
         [NSMutableArray arrayWithObject:view];
@@ -8258,6 +8387,42 @@ static void DYYYCommerceProbeView(UIView *view) {
         UIView *current = queue.firstObject;
         [queue removeObjectAtIndex:0];
         scanned++;
+
+NSString *className = NSStringFromClass(current.class);
+NSString *lowerClassName = className.lowercaseString;
+
+if ([lowerClassName containsString:@"live"] ||
+    [lowerClassName containsString:@"goods"] ||
+    [lowerClassName containsString:@"product"] ||
+    [lowerClassName containsString:@"commerce"] ||
+    [lowerClassName containsString:@"promotion"] ||
+    [lowerClassName containsString:@"lynx"]) {
+    DYYYCommerceProbeAppend(
+        [NSString stringWithFormat:@"VIEW_CLASS = %@", className]);
+
+    DYYYCommerceProbeClassHierarchy(
+        current,
+        [NSString stringWithFormat:@"subview.%@", className],
+        visited);
+}
+
+NSString *className = NSStringFromClass(current.class);
+NSString *lowerClassName = className.lowercaseString;
+
+if ([lowerClassName containsString:@"live"] ||
+    [lowerClassName containsString:@"goods"] ||
+    [lowerClassName containsString:@"product"] ||
+    [lowerClassName containsString:@"commerce"] ||
+    [lowerClassName containsString:@"promotion"] ||
+    [lowerClassName containsString:@"lynx"]) {
+    DYYYCommerceProbeAppend(
+        [NSString stringWithFormat:@"VIEW_CLASS = %@", className]);
+
+    DYYYCommerceProbeClassHierarchy(
+        current,
+        [NSString stringWithFormat:@"subview.%@", className],
+        visited);
+}
 
         if ([current isKindOfClass:[UILabel class]]) {
             NSString *text = ((UILabel *)current).text;
