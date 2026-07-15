@@ -9754,31 +9754,315 @@ static void DYYYCommerceProbeMessageClassPair(
             subscriberClass]);
 }
 
+static BOOL DYYYCommerceMessageKeyRelevant(
+    NSString *key
+) {
+    if (key.length == 0 ||
+        DYYYCommerceProbeSensitiveKey(key)) {
+        return NO;
+    }
+
+    NSString *lower = key.lowercaseString;
+
+    NSArray<NSString *> *wanted = @[
+        @"purchase",
+        @"order",
+        @"commerce",
+        @"ecom",
+        @"goods",
+        @"product",
+        @"promotion",
+        @"sale",
+        @"sold",
+        @"count",
+        @"num",
+        @"price",
+        @"amount",
+        @"gmv",
+        @"sku",
+        @"stock",
+        @"atmosphere",
+        @"hot"
+    ];
+
+    for (NSString *word in wanted) {
+        if ([lower containsString:word]) {
+            return YES;
+        }
+    }
+
+    return NO;
+}
+
+static NSString *DYYYCommerceMessagePrimitive(
+    id value
+) {
+    if (!value || value == [NSNull null]) {
+        return @"<nil>";
+    }
+
+    if ([value isKindOfClass:[NSNumber class]]) {
+        return [value description];
+    }
+
+    if ([value isKindOfClass:[NSString class]]) {
+        NSString *text = value;
+
+        if (text.length > 200) {
+            text = [[text substringToIndex:200]
+                stringByAppendingString:@"..."];
+        }
+
+        return text;
+    }
+
+    return DYYYCommerceProbeDescription(value);
+}
+
+static void DYYYCommerceProbeRelevantMessageValue(
+    id value,
+    NSString *path,
+    NSUInteger depth
+) {
+    if (!value || depth > 6) return;
+
+    if ([value isKindOfClass:[NSDictionary class]]) {
+        NSDictionary *dictionary = value;
+        NSUInteger scanned = 0;
+
+        for (id rawKey in dictionary) {
+            if (scanned++ >= 200) break;
+
+            NSString *key = [rawKey description];
+
+            if (DYYYCommerceProbeSensitiveKey(key)) {
+                continue;
+            }
+
+            id child = dictionary[rawKey];
+
+            NSString *childPath =
+                [NSString stringWithFormat:@"%@[%@]",
+                    path,
+                    key];
+
+            if (DYYYCommerceMessageKeyRelevant(key)) {
+                DYYYCommerceProbeAppend(
+                    [NSString stringWithFormat:
+                        @"LIVE_MESSAGE_FIELD %@ = %@",
+                        childPath,
+                        DYYYCommerceMessagePrimitive(child)]);
+            }
+
+            if ([child isKindOfClass:[NSDictionary class]] ||
+                [child isKindOfClass:[NSArray class]]) {
+                DYYYCommerceProbeRelevantMessageValue(
+                    child,
+                    childPath,
+                    depth + 1);
+            }
+        }
+
+        return;
+    }
+
+    if ([value isKindOfClass:[NSArray class]]) {
+        NSArray *array = value;
+        NSUInteger count =
+            MIN(array.count, (NSUInteger)200);
+
+        for (NSUInteger index = 0;
+             index < count;
+             index++) {
+            id child = array[index];
+
+            if ([child isKindOfClass:[NSDictionary class]] ||
+                [child isKindOfClass:[NSArray class]]) {
+                DYYYCommerceProbeRelevantMessageValue(
+                    child,
+                    [NSString stringWithFormat:@"%@[%lu]",
+                        path,
+                        (unsigned long)index],
+                    depth + 1);
+            }
+        }
+    }
+}
+
+static NSMutableSet<NSString *> *
+DYYYCommerceLoggedLiveEvents(void) {
+    static NSMutableSet<NSString *> *events;
+    static dispatch_once_t onceToken;
+
+    dispatch_once(&onceToken, ^{
+        events = [NSMutableSet set];
+    });
+
+    return events;
+}
+
+static void DYYYCommerceProbeLiveMessage(
+    NSString *source,
+    id message
+) {
+    if (!DYYYGetBool(@"DYYYEnableLiveCommerceProbe") ||
+        !message) {
+        return;
+    }
+
+    NSArray<NSString *> *eventKeys = @[
+        @"eventName",
+        @"event",
+        @"name",
+        @"messageType",
+        @"type"
+    ];
+
+    id eventName = nil;
+
+    for (NSString *key in eventKeys) {
+        eventName = DYYYCommerceProbeValue(message, key);
+        if (eventName) break;
+    }
+
+    id params =
+        DYYYCommerceProbeValue(message, @"params");
+
+    if (!params) {
+        params =
+            DYYYCommerceProbeValue(message, @"data");
+    }
+
+    id extra =
+        DYYYCommerceProbeValue(message, @"extra");
+
+    NSArray *paramKeys =
+        [params isKindOfClass:[NSDictionary class]]
+            ? [(NSDictionary *)params allKeys]
+            : @[];
+
+    NSString *signature =
+        [NSString stringWithFormat:@"%@|%@|%@",
+            source ?: @"<nil>",
+            DYYYCommerceMessagePrimitive(eventName),
+            paramKeys];
+
+    BOOL shouldLog = NO;
+
+    @synchronized (DYYYCommerceLoggedLiveEvents()) {
+        if (![DYYYCommerceLoggedLiveEvents()
+                containsObject:signature]) {
+            [DYYYCommerceLoggedLiveEvents()
+                addObject:signature];
+            shouldLog = YES;
+        }
+    }
+
+    if (!shouldLog) return;
+
+    DYYYCommerceProbeAppend(
+        [NSString stringWithFormat:
+            @"\n===== LIVE_MESSAGE "
+             "source=%@ class=%@ event=%@ paramsKeys=%@ =====",
+            source ?: @"<nil>",
+            NSStringFromClass(object_getClass(message)),
+            DYYYCommerceMessagePrimitive(eventName),
+            paramKeys]);
+
+    DYYYCommerceProbeRelevantMessageValue(
+        params,
+        @"LIVE_MESSAGE.params",
+        0);
+
+    DYYYCommerceProbeRelevantMessageValue(
+        extra,
+        @"LIVE_MESSAGE.extra",
+        0);
+}
+
 %hook IESLLLiveMessageSubscriber
 
 - (void)onReceiveMessage:(id)message {
-    DYYYCommerceProbeMessageClassPair(
+    DYYYCommerceProbeLiveMessage(
         @"subscriber.onReceiveMessage",
-        self,
-        message,
-        nil);
+        message);
 
     %orig(message);
 }
 
 %end
 
+
 %hook IESLLLiveMessageFilterHandler
 
 - (void)handlePostMessage:(id)message
            withSubscriber:(id)subscriber {
-    DYYYCommerceProbeMessageClassPair(
+    DYYYCommerceProbeLiveMessage(
         @"filter.handlePostMessage",
-        self,
-        message,
-        subscriber);
+        message);
 
     %orig(message, subscriber);
+}
+
+%end
+
+%hook IESLLLiveMessage
+
++ (id)messageWithEventName:(id)eventName
+                    params:(id)params {
+    id message = %orig(eventName, params);
+
+    if (DYYYGetBool(@"DYYYEnableLiveCommerceProbe")) {
+        NSArray *keys =
+            [params isKindOfClass:[NSDictionary class]]
+                ? [(NSDictionary *)params allKeys]
+                : @[];
+
+        DYYYCommerceProbeAppend(
+            [NSString stringWithFormat:
+                @"LIVE_MESSAGE_CREATED event=%@ paramsKeys=%@",
+                DYYYCommerceMessagePrimitive(eventName),
+                keys]);
+
+        DYYYCommerceProbeRelevantMessageValue(
+            params,
+            @"LIVE_MESSAGE_CREATED.params",
+            0);
+    }
+
+    return message;
+}
+
++ (id)messageWithEventName:(id)eventName
+                    params:(id)params
+                     extra:(id)extra {
+    id message = %orig(eventName, params, extra);
+
+    if (DYYYGetBool(@"DYYYEnableLiveCommerceProbe")) {
+        NSArray *keys =
+            [params isKindOfClass:[NSDictionary class]]
+                ? [(NSDictionary *)params allKeys]
+                : @[];
+
+        DYYYCommerceProbeAppend(
+            [NSString stringWithFormat:
+                @"LIVE_MESSAGE_CREATED_EXTRA "
+                 "event=%@ paramsKeys=%@",
+                DYYYCommerceMessagePrimitive(eventName),
+                keys]);
+
+        DYYYCommerceProbeRelevantMessageValue(
+            params,
+            @"LIVE_MESSAGE_CREATED_EXTRA.params",
+            0);
+
+        DYYYCommerceProbeRelevantMessageValue(
+            extra,
+            @"LIVE_MESSAGE_CREATED_EXTRA.extra",
+            0);
+    }
+
+    return message;
 }
 
 %end
@@ -9927,6 +10211,8 @@ fromJSONDictionary:(NSDictionary *)JSONDictionary
 - (id)modelFromJSONDictionary:(NSDictionary *)JSONDictionary
                         error:(NSError **)error {
     id result = %orig;
+    return result; // 暂停旧的商品 JSON 大范围日志
+
     if (DYYYGetBool(@"DYYYEnableLiveCommerceProbe")) {
 // DYYYCommerceProbeMessageClassInventory();
 }
