@@ -9194,6 +9194,7 @@ static void DYYYCommerceProbeHotSaleUpdate(
             @"HOT_LABEL text=%@",
             labelText ?: @"<nil>"]);
 
+    /*
     NSArray<NSString *> *stack =
         [NSThread callStackSymbols];
 
@@ -9208,7 +9209,8 @@ static void DYYYCommerceProbeHotSaleUpdate(
                 stack[index]]);
     }
 }
-
+*/
+ 
 %hook IESECLiveHotSaleView
 
 - (void)setCurHotsaleItem:(id)item {
@@ -9220,6 +9222,180 @@ static void DYYYCommerceProbeHotSaleUpdate(
 }
 
 %end
+
+static BOOL DYYYCommerceHotRawInterestingKey(
+    NSString *key
+) {
+    if (key.length == 0 ||
+        DYYYCommerceProbeSensitiveKey(key)) {
+        return NO;
+    }
+
+    NSString *lower = key.lowercaseString;
+
+    NSArray<NSString *> *wanted = @[
+        @"hot",
+        @"sale",
+        @"sold",
+        @"count",
+        @"num",
+        @"goods",
+        @"product",
+        @"promotion",
+        @"sku",
+        @"price",
+        @"room",
+        @"rank",
+        @"item",
+        @"data",
+        @"type"
+    ];
+
+    for (NSString *word in wanted) {
+        if ([lower containsString:word]) return YES;
+    }
+
+    return NO;
+}
+
+static void DYYYCommerceProbeHotRawValue(
+    id value,
+    NSString *path,
+    NSUInteger depth
+) {
+    if (!value || depth > 10) return;
+
+    if ([value isKindOfClass:[NSDictionary class]]) {
+        NSDictionary *dictionary = value;
+        NSUInteger scanned = 0;
+
+        for (id rawKey in dictionary) {
+            if (scanned++ >= 300) break;
+
+            NSString *key = [rawKey description];
+
+            if (DYYYCommerceProbeSensitiveKey(key)) {
+                continue;
+            }
+
+            id child = dictionary[rawKey];
+
+            NSString *childPath =
+                [NSString stringWithFormat:@"%@[%@]",
+                    path,
+                    key];
+
+            if (DYYYCommerceHotRawInterestingKey(key)) {
+                DYYYCommerceProbeAppend(
+                    [NSString stringWithFormat:
+                        @"HOT_RAW %@ = %@",
+                        childPath,
+                        DYYYCommerceProbeDescription(child)]);
+            }
+
+            if ([child isKindOfClass:[NSDictionary class]] ||
+                [child isKindOfClass:[NSArray class]]) {
+                DYYYCommerceProbeHotRawValue(
+                    child,
+                    childPath,
+                    depth + 1);
+            }
+        }
+
+        return;
+    }
+
+%hook MTLJSONAdapter
+
++ (id)modelOfClass:(Class)modelClass
+fromJSONDictionary:(NSDictionary *)JSONDictionary
+             error:(NSError **)error {
+    NSString *modelClassName =
+        modelClass ? NSStringFromClass(modelClass) : @"";
+
+    BOOL probeEnabled =
+        DYYYGetBool(@"DYYYEnableLiveCommerceProbe");
+
+    if (probeEnabled &&
+        [JSONDictionary isKindOfClass:[NSDictionary class]] &&
+        [modelClassName
+            isEqualToString:@"IESECLiveGoodsHotSaleModel"]) {
+
+        DYYYCommerceProbeAppend(
+            [NSString stringWithFormat:
+                @"\n===== HOT_RAW_MODEL class=%@ =====",
+                modelClassName]);
+
+        DYYYCommerceProbeHotRawValue(
+            JSONDictionary,
+            @"HOT_MODEL_JSON",
+            0);
+    }
+
+    return %orig;
+}
+
+- (id)modelFromJSONDictionary:(NSDictionary *)JSONDictionary
+                        error:(NSError **)error {
+    id result = %orig;
+
+    if (DYYYGetBool(@"DYYYEnableLiveCommerceProbe") &&
+        [JSONDictionary isKindOfClass:[NSDictionary class]] &&
+        [NSStringFromClass([result class])
+            isEqualToString:@"IESECLiveGoodsHotSaleModel"]) {
+
+        DYYYCommerceProbeAppend(
+            @"\n===== HOT_RAW_ADAPTER_INSTANCE =====");
+
+        DYYYCommerceProbeHotRawValue(
+            JSONDictionary,
+            @"HOT_ADAPTER_JSON",
+            0);
+    }
+
+    return result;
+}
+
+%end
+
+    if ([value isKindOfClass:[NSArray class]]) {
+        NSArray *array = value;
+
+        DYYYCommerceProbeAppend(
+            [NSString stringWithFormat:
+                @"HOT_RAW %@ arrayCount=%lu",
+                path,
+                (unsigned long)array.count]);
+
+        NSUInteger count =
+            MIN(array.count, (NSUInteger)300);
+
+        for (NSUInteger index = 0;
+             index < count;
+             index++) {
+            id child = array[index];
+
+            NSString *childPath =
+                [NSString stringWithFormat:@"%@[%lu]",
+                    path,
+                    (unsigned long)index];
+
+            if ([child isKindOfClass:[NSDictionary class]] ||
+                [child isKindOfClass:[NSArray class]]) {
+                DYYYCommerceProbeHotRawValue(
+                    child,
+                    childPath,
+                    depth + 1);
+            } else {
+                DYYYCommerceProbeAppend(
+                    [NSString stringWithFormat:
+                        @"HOT_RAW %@ = %@",
+                        childPath,
+                        DYYYCommerceProbeDescription(child)]);
+            }
+        }
+    }
+}
 
 // 隐藏直播间商品和推广
 %hook IESECLivePluginLayoutView
