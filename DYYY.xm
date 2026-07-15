@@ -9901,6 +9901,153 @@ DYYYCommerceLoggedLiveEvents(void) {
     return events;
 }
 
+static id DYYYCommerceJSONObjectFromValue(id value) {
+    if ([value isKindOfClass:[NSDictionary class]] ||
+        [value isKindOfClass:[NSArray class]]) {
+        return value;
+    }
+
+    if (![value isKindOfClass:[NSString class]]) {
+        return nil;
+    }
+
+    NSString *text = value;
+
+    if (text.length == 0 ||
+        text.length > 2 * 1024 * 1024) {
+        return nil;
+    }
+
+    NSData *data =
+        [text dataUsingEncoding:NSUTF8StringEncoding];
+
+    if (!data) return nil;
+
+    id object = nil;
+
+    @try {
+        object =
+            [NSJSONSerialization JSONObjectWithData:data
+                                            options:0
+                                              error:nil];
+    } @catch (__unused NSException *exception) {
+        object = nil;
+    }
+
+    return object;
+}
+
+static void DYYYCommerceProbeLiveLifeSetData(
+    id params
+) {
+    if (![params isKindOfClass:[NSDictionary class]]) {
+        return;
+    }
+
+    NSDictionary *dictionary = params;
+
+    id dataName =
+        dictionary[@"data_name"];
+
+    id dataValue =
+        dictionary[@"data"];
+
+    NSString *dataClass =
+        dataValue
+            ? NSStringFromClass(object_getClass(dataValue))
+            : @"<nil>";
+
+    NSUInteger dataLength = 0;
+
+    if ([dataValue isKindOfClass:[NSString class]]) {
+        dataLength =
+            [(NSString *)dataValue length];
+    } else if ([dataValue isKindOfClass:[NSData class]]) {
+        dataLength =
+            [(NSData *)dataValue length];
+    } else if ([dataValue isKindOfClass:[NSArray class]] ||
+               [dataValue isKindOfClass:[NSDictionary class]]) {
+        dataLength =
+            [dataValue count];
+    }
+
+    DYYYCommerceProbeAppend(
+        [NSString stringWithFormat:
+            @"LIVE_LIFE_SET_DATA name=%@ "
+             "dataClass=%@ dataLength=%lu",
+            DYYYCommerceMessagePrimitive(dataName),
+            dataClass,
+            (unsigned long)dataLength]);
+
+    id structuredValue =
+        DYYYCommerceJSONObjectFromValue(dataValue);
+
+    if (structuredValue) {
+        DYYYCommerceProbeRelevantMessageValue(
+            structuredValue,
+            [NSString stringWithFormat:
+                @"LIVE_LIFE_DATA[%@]",
+                DYYYCommerceMessagePrimitive(dataName)],
+            0);
+        return;
+    }
+
+    if (!dataValue ||
+        [dataValue isKindOfClass:[NSString class]] ||
+        [dataValue isKindOfClass:[NSNumber class]] ||
+        [dataValue isKindOfClass:[NSData class]]) {
+        return;
+    }
+
+    Class cls = object_getClass(dataValue);
+    NSUInteger level = 0;
+
+    while (cls &&
+           cls != [NSObject class] &&
+           level < 6) {
+        unsigned int propertyCount = 0;
+        objc_property_t *properties =
+            class_copyPropertyList(
+                cls, &propertyCount);
+
+        for (unsigned int index = 0;
+             index < propertyCount;
+             index++) {
+            const char *rawName =
+                property_getName(properties[index]);
+
+            if (!rawName) continue;
+
+            NSString *key =
+                [NSString stringWithUTF8String:rawName];
+
+            if (!DYYYCommerceMessageKeyRelevant(key)) {
+                continue;
+            }
+
+            id value = nil;
+
+            @try {
+                value =
+                    [dataValue valueForKey:key];
+            } @catch (__unused NSException *exception) {
+                continue;
+            }
+
+            DYYYCommerceProbeAppend(
+                [NSString stringWithFormat:
+                    @"LIVE_LIFE_FIELD class=%@ key=%@ value=%@",
+                    NSStringFromClass(cls),
+                    key,
+                    DYYYCommerceMessagePrimitive(value)]);
+        }
+
+        free(properties);
+        cls = class_getSuperclass(cls);
+        level++;
+    }
+}
+
 static void DYYYCommerceProbeLiveMessage(
     NSString *source,
     id message
@@ -9935,6 +10082,15 @@ static void DYYYCommerceProbeLiveMessage(
 
     id extra =
         DYYYCommerceProbeValue(message, @"extra");
+
+    NSString *eventText =
+    [eventName isKindOfClass:[NSString class]]
+        ? (NSString *)eventName
+        : [eventName description];
+
+if ([eventText isEqualToString:@"live_life_set_data"]) {
+    DYYYCommerceProbeLiveLifeSetData(params);
+}
 
     NSArray *paramKeys =
         [params isKindOfClass:[NSDictionary class]]
@@ -10037,6 +10193,12 @@ static void DYYYCommerceProbeLiveMessage(
                     params:(id)params
                      extra:(id)extra {
     id message = %orig(eventName, params, extra);
+
+    if ([eventName isKindOfClass:[NSString class]] &&
+    [(NSString *)eventName
+        isEqualToString:@"live_life_set_data"]) {
+    DYYYCommerceProbeLiveLifeSetData(params);
+}
 
     if (DYYYGetBool(@"DYYYEnableLiveCommerceProbe")) {
         NSArray *keys =
@@ -10267,6 +10429,7 @@ fromJSONDictionary:(NSDictionary *)JSONDictionary
 
 - (void)setCurHotsaleItem:(id)item {
     %orig(item);
+    return; // 暂停热卖 UI 日志
 
     if (DYYYGetBool(@"DYYYEnableLiveCommerceProbe")) {
         DYYYCommerceProbeHotSaleUpdate(self, item);
