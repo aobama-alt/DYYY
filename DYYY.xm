@@ -8754,31 +8754,295 @@ if ([lowerClassName containsString:@"live"] ||
     }
 }
 
+static BOOL DYYYCommerceProbeTargetClass(id object) {
+    if (!object) return NO;
+
+    NSString *className = NSStringFromClass([object class]);
+
+    NSArray<NSString *> *allowed = @[
+        @"IESECLiveGoodsModelV2",
+        @"IESECLiveGoodsInfoModel",
+        @"IESECLiveGoodsLineInfo",
+        @"IESECLiveGoodsInfoItem",
+        @"IESECLiveGoodsPriceModel",
+        @"IESECLiveGoodsPriceShowPrice",
+        @"IESECLiveGoodsMinPrice",
+        @"IESECLiveGoodsProductModel",
+        @"IESECLiveGoodsTrackModel",
+        @"IESECLiveTrackConfigModel"
+    ];
+
+    return [allowed containsObject:className];
+}
+
+static BOOL DYYYCommerceProbeSkipTargetKey(NSString *key) {
+    if (key.length == 0) return YES;
+    if (DYYYCommerceProbeSensitiveKey(key)) return YES;
+
+    NSString *lower = key.lowercaseString;
+
+    NSArray<NSString *> *blocked = @[
+        @"url",
+        @"image",
+        @"icon",
+        @"avatar",
+        @"author",
+        @"user",
+        @"device",
+        @"request",
+        @"session",
+        @"token",
+        @"cookie",
+        @"signature"
+    ];
+
+    for (NSString *word in blocked) {
+        if ([lower containsString:word]) return YES;
+    }
+
+    return NO;
+}
+
+static void DYYYCommerceProbeTargetObject(
+    id object,
+    NSString *path,
+    NSUInteger depth,
+    NSHashTable *visited
+) {
+    if (!object ||
+        path.length == 0 ||
+        depth > 5 ||
+        [visited containsObject:object]) {
+        return;
+    }
+
+    [visited addObject:object];
+
+    if ([object isKindOfClass:[NSDictionary class]]) {
+        NSDictionary *dictionary = object;
+        NSUInteger scanned = 0;
+
+        for (id rawKey in dictionary) {
+            if (scanned++ >= 100) break;
+
+            NSString *key = [rawKey description];
+            if (DYYYCommerceProbeSkipTargetKey(key)) continue;
+
+            id value = dictionary[rawKey];
+            NSString *childPath =
+                [NSString stringWithFormat:@"%@[%@]", path, key];
+
+            DYYYCommerceProbeAppend(
+                [NSString stringWithFormat:@"%@ = %@",
+                    childPath,
+                    DYYYCommerceProbeDescription(value)]);
+
+            if (DYYYCommerceProbeTargetClass(value) ||
+                [value isKindOfClass:[NSDictionary class]] ||
+                [value isKindOfClass:[NSArray class]]) {
+                DYYYCommerceProbeTargetObject(
+                    value,
+                    childPath,
+                    depth + 1,
+                    visited);
+            }
+        }
+
+        return;
+    }
+
+    if ([object isKindOfClass:[NSArray class]]) {
+        NSArray *array = object;
+        NSUInteger count = MIN(array.count, (NSUInteger)100);
+
+        for (NSUInteger index = 0; index < count; index++) {
+            id value = array[index];
+
+            NSString *childPath =
+                [NSString stringWithFormat:@"%@[%lu]",
+                    path,
+                    (unsigned long)index];
+
+            DYYYCommerceProbeAppend(
+                [NSString stringWithFormat:@"%@ = %@",
+                    childPath,
+                    DYYYCommerceProbeDescription(value)]);
+
+            if (DYYYCommerceProbeTargetClass(value) ||
+                [value isKindOfClass:[NSDictionary class]] ||
+                [value isKindOfClass:[NSArray class]]) {
+                DYYYCommerceProbeTargetObject(
+                    value,
+                    childPath,
+                    depth + 1,
+                    visited);
+            }
+        }
+
+        return;
+    }
+
+    Class cls = object_getClass(object);
+    NSUInteger classLevel = 0;
+
+    while (cls &&
+           cls != [NSObject class] &&
+           classLevel < 6) {
+        unsigned int propertyCount = 0;
+        objc_property_t *properties =
+            class_copyPropertyList(cls, &propertyCount);
+
+        for (unsigned int index = 0;
+             index < propertyCount;
+             index++) {
+            const char *rawName =
+                property_getName(properties[index]);
+
+            if (!rawName) continue;
+
+            NSString *key =
+                [NSString stringWithUTF8String:rawName];
+
+            if (DYYYCommerceProbeSkipTargetKey(key)) continue;
+
+            id value = nil;
+
+            @try {
+                value = [object valueForKey:key];
+            } @catch (__unused NSException *exception) {
+                continue;
+            }
+
+            NSString *childPath =
+                [NSString stringWithFormat:@"%@.%@",
+                    path,
+                    key];
+
+            DYYYCommerceProbeAppend(
+                [NSString stringWithFormat:@"%@ = %@",
+                    childPath,
+                    DYYYCommerceProbeDescription(value)]);
+
+            if (DYYYCommerceProbeTargetClass(value) ||
+                [value isKindOfClass:[NSDictionary class]] ||
+                [value isKindOfClass:[NSArray class]]) {
+                DYYYCommerceProbeTargetObject(
+                    value,
+                    childPath,
+                    depth + 1,
+                    visited);
+            }
+        }
+
+        free(properties);
+
+        cls = class_getSuperclass(cls);
+        classLevel++;
+    }
+}
+
 static char kDYYYV2GoodsPageSignatureKey;
+
+static NSMutableSet<NSString *> *DYYYV2LoggedPromotions(void) {
+    static NSMutableSet<NSString *> *set;
+    static dispatch_once_t onceToken;
+
+    dispatch_once(&onceToken, ^{
+        set = [NSMutableSet set];
+    });
+
+    return set;
+}
 
 static void DYYYCommerceProbeV2PageSnapshot(
     id page,
     NSArray *goodsList
 ) {
-    if (!page || ![goodsList isKindOfClass:[NSArray class]]) return;
+    if (!page ||
+        ![goodsList isKindOfClass:[NSArray class]]) {
+        return;
+    }
 
     DYYYCommerceProbeAppend(
         [NSString stringWithFormat:
-            @"\n===== V2_PAGE_SNAPSHOT count=%lu pageClass=%@ =====",
-            (unsigned long)goodsList.count,
-            NSStringFromClass([page class])]);
+            @"\n===== TARGET_PAGE count=%lu =====",
+            (unsigned long)goodsList.count]);
 
-    NSUInteger count = MIN(goodsList.count, (NSUInteger)200);
+    NSUInteger count =
+        MIN(goodsList.count, (NSUInteger)200);
+
     for (NSUInteger index = 0; index < count; index++) {
-        DYYYCommerceProbeV2Goods(goodsList[index], index, NO);
+        id goods = goodsList[index];
+
+        id rawPromotionID =
+            DYYYCommerceProbeValue(goods, @"promotionID");
+
+        NSString *promotionID =
+            rawPromotionID
+                ? [rawPromotionID description]
+                : [NSString stringWithFormat:@"object-%p", goods];
+
+        BOOL alreadyLogged = NO;
+
+        @synchronized (DYYYV2LoggedPromotions()) {
+            alreadyLogged =
+                [DYYYV2LoggedPromotions()
+                    containsObject:promotionID];
+
+            if (!alreadyLogged) {
+                [DYYYV2LoggedPromotions()
+                    addObject:promotionID];
+            }
+        }
+
+        if (alreadyLogged) continue;
+
+        id product =
+            DYYYCommerceProbeValue(goods, @"product");
+
+        id goodsID =
+            DYYYCommerceProbeValue(product, @"goodsID");
+
+        id priceModel =
+            DYYYCommerceProbeValue(goods, @"price");
+
+        id showPrice =
+            DYYYCommerceProbeValue(
+                priceModel, @"showPrice");
+
+        id minPrice =
+            DYYYCommerceProbeValue(
+                showPrice, @"minPrice");
+
+        id price =
+            DYYYCommerceProbeValue(
+                minPrice, @"price");
+
+        DYYYCommerceProbeAppend(
+            [NSString stringWithFormat:
+                @"\n----- TARGET_UNIQUE_GOODS "
+                 "promotionID=%@ goodsID=%@ minPrice=%@ -----",
+                promotionID,
+                DYYYCommerceProbeDescription(goodsID),
+                DYYYCommerceProbeDescription(price)]);
+
+        NSHashTable *visited =
+            [NSHashTable hashTableWithOptions:
+                NSPointerFunctionsObjectPointerPersonality];
+
+        DYYYCommerceProbeTargetObject(
+            goods,
+            [NSString stringWithFormat:
+                @"GOODS[%@]", promotionID],
+            0,
+            visited);
     }
 
-    id introducingGoods =
-        DYYYCommerceProbeValue(page, @"introducingGoodsModel");
-
-    if (introducingGoods) {
-        DYYYCommerceProbeV2Goods(introducingGoods, 0, YES);
-    }
+    DYYYCommerceProbeAppend(
+        [NSString stringWithFormat:
+            @"TARGET_TOTAL_UNIQUE_GOODS = %lu",
+            (unsigned long)
+                DYYYV2LoggedPromotions().count]);
 }
 
 %hook IESECLiveGoodsListPageModelV2
