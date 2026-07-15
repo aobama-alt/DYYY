@@ -9210,6 +9210,13 @@ static void DYYYCommerceProbeHotSaleUpdate(
     }
 }
 */
+}
+
+static void DYYYCommerceProbeHotRawValue(
+    id value,
+    NSString *path,
+    NSUInteger depth
+);
 
 %hook MTLJSONAdapter
 
@@ -9354,9 +9361,9 @@ static void DYYYCommerceProbeHotRawValue(
                     depth + 1);
             }
         }
-    }      
-}
-return;
+
+        return;
+    }
 
     if ([value isKindOfClass:[NSArray class]]) {
         NSArray *array = value;
