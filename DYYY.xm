@@ -10179,11 +10179,6 @@ if ([eventText isEqualToString:@"live_life_set_data"]) {
                 @"LIVE_MESSAGE_CREATED event=%@ paramsKeys=%@",
                 DYYYCommerceMessagePrimitive(eventName),
                 keys]);
-
-        DYYYCommerceProbeRelevantMessageValue(
-            params,
-            @"LIVE_MESSAGE_CREATED.params",
-            0);
     }
 
     return message;
@@ -10276,6 +10271,8 @@ if ([eventText isEqualToString:@"live_life_set_data"]) {
 
     return message;
 }
+
+%end
 
 static BOOL DYYYCommercePurchaseKeyRelevant(
     NSString *key
