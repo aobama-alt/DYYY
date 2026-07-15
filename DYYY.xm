@@ -9371,6 +9371,154 @@ static BOOL DYYYCommerceProbeHotEnvelope(
     return YES;
 }
 
+static NSNumber *DYYYCommerceHotSaleNumber(
+    NSDictionary *promotion
+) {
+    if (![promotion isKindOfClass:[NSDictionary class]]) {
+        return nil;
+    }
+
+    NSDictionary *hot =
+        promotion[@"hot_atmosphere"];
+
+    if (![hot isKindOfClass:[NSDictionary class]]) {
+        NSDictionary *image = promotion[@"image"];
+
+        if ([image isKindOfClass:[NSDictionary class]]) {
+            hot = image[@"hot_atmosphere"];
+        }
+    }
+
+    if (![hot isKindOfClass:[NSDictionary class]]) {
+        return nil;
+    }
+
+    id value = hot[@"sale_num"] ?: hot[@"num"];
+
+    if ([value isKindOfClass:[NSNumber class]]) {
+        return value;
+    }
+
+    if ([value isKindOfClass:[NSString class]]) {
+        return @([(NSString *)value longLongValue]);
+    }
+
+    return nil;
+}
+
+static void DYYYCommerceProbePromotionListSummary(
+    NSDictionary *JSONDictionary
+) {
+    if (![JSONDictionary isKindOfClass:[NSDictionary class]]) {
+        return;
+    }
+
+    NSArray *candidateKeys = @[
+        @"promotions_v2",
+        @"target_promotions_v2",
+        @"related_promotions_v2",
+        @"recommend_promotions_v2",
+        @"promotions"
+    ];
+
+    for (NSString *listKey in candidateKeys) {
+        NSArray *list = JSONDictionary[listKey];
+
+        if (![list isKindOfClass:[NSArray class]] ||
+            list.count == 0) {
+            continue;
+        }
+
+        NSUInteger hotCount = 0;
+
+        DYYYCommerceProbeAppend(
+            [NSString stringWithFormat:
+                @"\n===== PROMOTION_LIST_SUMMARY "
+                 "key=%@ count=%lu =====",
+                listKey,
+                (unsigned long)list.count]);
+
+        NSUInteger count =
+            MIN(list.count, (NSUInteger)250);
+
+        for (NSUInteger index = 0;
+             index < count;
+             index++) {
+            NSDictionary *promotion = list[index];
+
+            if (![promotion
+                    isKindOfClass:[NSDictionary class]]) {
+                continue;
+            }
+
+            NSNumber *saleNum =
+                DYYYCommerceHotSaleNumber(promotion);
+
+            if (!saleNum) continue;
+
+            hotCount++;
+
+            id promotionID =
+                promotion[@"promotion_id"];
+
+            NSDictionary *product =
+                promotion[@"product"];
+
+            id productID =
+                promotion[@"product_id"];
+
+            if (!productID &&
+                [product isKindOfClass:[NSDictionary class]]) {
+                productID = product[@"product_id"];
+            }
+
+            NSDictionary *price =
+                promotion[@"price"];
+
+            id minPrice =
+                promotion[@"min_price"];
+
+            id maxPrice =
+                promotion[@"max_price"];
+
+            if ([price isKindOfClass:[NSDictionary class]]) {
+                minPrice =
+                    minPrice ?: price[@"min_price"];
+                maxPrice =
+                    maxPrice ?: price[@"max_price"];
+            }
+
+            DYYYCommerceProbeAppend(
+                [NSString stringWithFormat:
+                    @"PROMOTION_HOT_ITEM "
+                     "list=%@ index=%lu "
+                     "promotionID=%@ productID=%@ "
+                     "saleNum=%@ minPrice=%@ maxPrice=%@",
+                    listKey,
+                    (unsigned long)index,
+                    DYYYCommerceProbeDescription(
+                        promotionID),
+                    DYYYCommerceProbeDescription(
+                        productID),
+                    DYYYCommerceProbeDescription(
+                        saleNum),
+                    DYYYCommerceProbeDescription(
+                        minPrice),
+                    DYYYCommerceProbeDescription(
+                        maxPrice)]);
+        }
+
+        DYYYCommerceProbeAppend(
+            [NSString stringWithFormat:
+                @"PROMOTION_LIST_RESULT "
+                 "key=%@ total=%lu hot=%lu nonHot=%lu",
+                listKey,
+                (unsigned long)list.count,
+                (unsigned long)hotCount,
+                (unsigned long)(list.count - hotCount)]);
+    }
+}
+
 %hook MTLJSONAdapter
 
 + (id)modelOfClass:(Class)modelClass
@@ -9404,6 +9552,11 @@ fromJSONDictionary:(NSDictionary *)JSONDictionary
 - (id)modelFromJSONDictionary:(NSDictionary *)JSONDictionary
                         error:(NSError **)error {
     id result = %orig;
+    if (DYYYGetBool(@"DYYYEnableLiveCommerceProbe") &&
+    [JSONDictionary isKindOfClass:[NSDictionary class]]) {
+    DYYYCommerceProbePromotionListSummary(
+        JSONDictionary);
+}
 
     if (!DYYYGetBool(@"DYYYEnableLiveCommerceProbe") ||
         ![JSONDictionary isKindOfClass:[NSDictionary class]]) {
