@@ -8975,10 +8975,9 @@ static void DYYYCommerceProbeJSONMappings(void) {
                 IMP implementation =
                     [cls methodForSelector:selector];
 
-                NSDictionary *(*function)(
-                    id,
-                    SEL
-                ) = (void *)implementation;
+                NSDictionary *(*function)(id, SEL) =
+    reinterpret_cast<NSDictionary *(*)(id, SEL)>(
+        implementation);
 
                 mapping = function(cls, selector);
             } @catch (__unused NSException *exception) {
