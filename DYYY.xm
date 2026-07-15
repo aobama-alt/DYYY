@@ -10161,7 +10161,7 @@ static void DYYYCommerceProbeExactClass(
 
         dispatch_once(&onceToken, ^{
             DYYYCommerceProbeAppend(
-                @"PROBE_BUILD exact-purchase-class-v1");
+                @"PROBE_BUILD purchase-analysis-v3-installed"
 
             DYYYCommerceProbeExactClass(
                 @"IESLLLivePurchaseAtmosphereViewModel");
@@ -10736,13 +10736,40 @@ static void DYYYCommerceProbePurchaseViewModel(
 
 %hook IESLLLivePurchaseAtmosphereViewModel
 
+- (id)init {
+    id result = %orig;
+
+    if (result &&
+        DYYYGetBool(@"DYYYEnableLiveCommerceProbe")) {
+        DYYYCommerceProbeAppend(
+            [NSString stringWithFormat:
+                @"PURCHASE_VM_INIT object=%p class=%@",
+                result,
+                NSStringFromClass(object_getClass(result))]);
+    }
+
+    return result;
+}
+
+- (void)analysisAnimationLogicWithOldViewModel:(id)oldViewModel {
+    %orig(oldViewModel);
+
+    if (DYYYGetBool(@"DYYYEnableLiveCommerceProbe")) {
+        DYYYCommerceProbeAppend(
+            @"PROBE_BUILD purchase-analysis-v3");
+
+        DYYYCommerceProbePurchaseViewModel(
+            self,
+            @"analysisAnimationLogicWithOldViewModel");
+    }
+}
+
 - (void)setOriginData:(id)originData {
     %orig(originData);
 
-    if (DYYYGetBool(
-            @"DYYYEnableLiveCommerceProbe")) {
+    if (DYYYGetBool(@"DYYYEnableLiveCommerceProbe")) {
         DYYYCommerceProbeAppend(
-            @"PROBE_BUILD purchase-atmosphere-v2");
+            @"PURCHASE_SETTER setOriginData");
 
         DYYYCommerceProbePurchaseViewModel(
             self,
@@ -10753,13 +10780,11 @@ static void DYYYCommerceProbePurchaseViewModel(
 - (void)setProductId:(id)productId {
     %orig(productId);
 
-    if (DYYYGetBool(
-            @"DYYYEnableLiveCommerceProbe")) {
+    if (DYYYGetBool(@"DYYYEnableLiveCommerceProbe")) {
         DYYYCommerceProbeAppend(
             [NSString stringWithFormat:
-                @"PURCHASE_PRODUCT_ID value=%@",
-                DYYYCommerceProbeDescription(
-                    productId)]);
+                @"PURCHASE_SETTER setProductId value=%@",
+                DYYYCommerceProbeDescription(productId)]);
 
         DYYYCommerceProbePurchaseViewModel(
             self,
@@ -10770,8 +10795,10 @@ static void DYYYCommerceProbePurchaseViewModel(
 - (void)setNormalXNumberItem:(id)item {
     %orig(item);
 
-    if (DYYYGetBool(
-            @"DYYYEnableLiveCommerceProbe")) {
+    if (DYYYGetBool(@"DYYYEnableLiveCommerceProbe")) {
+        DYYYCommerceProbeAppend(
+            @"PURCHASE_SETTER setNormalXNumberItem");
+
         DYYYCommerceProbePurchaseLayoutItem(
             item,
             @"setNormalXNumberItem");
@@ -10785,8 +10812,10 @@ static void DYYYCommerceProbePurchaseViewModel(
 - (void)setNormalLayoutItems:(id)items {
     %orig(items);
 
-    if (DYYYGetBool(
-            @"DYYYEnableLiveCommerceProbe")) {
+    if (DYYYGetBool(@"DYYYEnableLiveCommerceProbe")) {
+        DYYYCommerceProbeAppend(
+            @"PURCHASE_SETTER setNormalLayoutItems");
+
         DYYYCommerceProbePurchaseViewModel(
             self,
             @"setNormalLayoutItems");
@@ -10796,16 +10825,30 @@ static void DYYYCommerceProbePurchaseViewModel(
 - (void)setNextStateLayoutItems:(id)items {
     %orig(items);
 
-    if (DYYYGetBool(
-            @"DYYYEnableLiveCommerceProbe")) {
+    if (DYYYGetBool(@"DYYYEnableLiveCommerceProbe")) {
+        DYYYCommerceProbeAppend(
+            @"PURCHASE_SETTER setNextStateLayoutItems");
+
         DYYYCommerceProbePurchaseViewModel(
             self,
             @"setNextStateLayoutItems");
     }
 }
 
-%end
+- (void)setLastViewModel:(id)lastViewModel {
+    %orig(lastViewModel);
 
+    if (DYYYGetBool(@"DYYYEnableLiveCommerceProbe")) {
+        DYYYCommerceProbeAppend(
+            @"PURCHASE_SETTER setLastViewModel");
+
+        DYYYCommerceProbePurchaseViewModel(
+            self,
+            @"setLastViewModel");
+    }
+}
+
+%end
 
 %hook MTLJSONAdapter
 
