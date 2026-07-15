@@ -9218,6 +9218,159 @@ static void DYYYCommerceProbeHotRawValue(
     NSUInteger depth
 );
 
+static BOOL DYYYCommerceProbeIsHotSaleDictionary(
+    NSDictionary *dictionary
+) {
+    if (![dictionary isKindOfClass:[NSDictionary class]]) {
+        return NO;
+    }
+
+    id saleNum =
+        dictionary[@"sale_num"] ?: dictionary[@"num"];
+
+    id type = dictionary[@"type"];
+    id uiType = dictionary[@"ui_type"];
+
+    return saleNum != nil &&
+           type != nil &&
+           uiType != nil;
+}
+
+static BOOL DYYYCommerceProbeHotEnvelope(
+    id value,
+    NSString *path,
+    NSUInteger depth
+) {
+    if (!value || depth > 10) return NO;
+
+    if ([value isKindOfClass:[NSArray class]]) {
+        NSArray *array = value;
+        BOOL containsHotSale = NO;
+
+        NSUInteger count =
+            MIN(array.count, (NSUInteger)300);
+
+        for (NSUInteger index = 0;
+             index < count;
+             index++) {
+            id child = array[index];
+
+            NSString *childPath =
+                [NSString stringWithFormat:@"%@[%lu]",
+                    path,
+                    (unsigned long)index];
+
+            if (DYYYCommerceProbeHotEnvelope(
+                    child,
+                    childPath,
+                    depth + 1)) {
+                containsHotSale = YES;
+            }
+        }
+
+        if (containsHotSale) {
+            DYYYCommerceProbeAppend(
+                [NSString stringWithFormat:
+                    @"HOT_ENVELOPE_ARRAY path=%@ count=%lu",
+                    path,
+                    (unsigned long)array.count]);
+        }
+
+        return containsHotSale;
+    }
+
+    if (![value isKindOfClass:[NSDictionary class]]) {
+        return NO;
+    }
+
+    NSDictionary *dictionary = value;
+    BOOL directHotSale =
+        DYYYCommerceProbeIsHotSaleDictionary(dictionary);
+
+    BOOL childContainsHotSale = NO;
+    NSUInteger scanned = 0;
+
+    for (id rawKey in dictionary) {
+        if (scanned++ >= 300) break;
+
+        NSString *key = [rawKey description];
+
+        if (DYYYCommerceProbeSensitiveKey(key)) {
+            continue;
+        }
+
+        id child = dictionary[rawKey];
+
+        if ([child isKindOfClass:[NSDictionary class]] ||
+            [child isKindOfClass:[NSArray class]]) {
+            NSString *childPath =
+                [NSString stringWithFormat:@"%@[%@]",
+                    path,
+                    key];
+
+            if (DYYYCommerceProbeHotEnvelope(
+                    child,
+                    childPath,
+                    depth + 1)) {
+                childContainsHotSale = YES;
+            }
+        }
+    }
+
+    BOOL containsHotSale =
+        directHotSale || childContainsHotSale;
+
+    if (!containsHotSale) return NO;
+
+    DYYYCommerceProbeAppend(
+        [NSString stringWithFormat:
+            @"HOT_ENVELOPE_DICTIONARY path=%@ keys=%@",
+            path,
+            dictionary.allKeys]);
+
+    scanned = 0;
+
+    for (id rawKey in dictionary) {
+        if (scanned++ >= 300) break;
+
+        NSString *key = [rawKey description];
+
+        if (DYYYCommerceProbeSensitiveKey(key)) {
+            continue;
+        }
+
+        id child = dictionary[rawKey];
+
+        if ([child isKindOfClass:[NSString class]] ||
+            [child isKindOfClass:[NSNumber class]] ||
+            child == [NSNull null]) {
+            DYYYCommerceProbeAppend(
+                [NSString stringWithFormat:
+                    @"HOT_ENVELOPE_VALUE %@[%@] = %@",
+                    path,
+                    key,
+                    DYYYCommerceProbeDescription(child)]);
+        } else if ([child isKindOfClass:[NSArray class]]) {
+            DYYYCommerceProbeAppend(
+                [NSString stringWithFormat:
+                    @"HOT_ENVELOPE_CHILD %@[%@] = "
+                     "<array count=%lu>",
+                    path,
+                    key,
+                    (unsigned long)[child count]]);
+        } else if ([child isKindOfClass:[NSDictionary class]]) {
+            DYYYCommerceProbeAppend(
+                [NSString stringWithFormat:
+                    @"HOT_ENVELOPE_CHILD %@[%@] keys=%@",
+                    path,
+                    key,
+                    [(NSDictionary *)child allKeys]]);
+        }
+    }
+
+    return YES;
+}
+
 %hook MTLJSONAdapter
 
 + (id)modelOfClass:(Class)modelClass
@@ -9252,11 +9405,32 @@ fromJSONDictionary:(NSDictionary *)JSONDictionary
                         error:(NSError **)error {
     id result = %orig;
 
-    if (DYYYGetBool(@"DYYYEnableLiveCommerceProbe") &&
-        [JSONDictionary isKindOfClass:[NSDictionary class]] &&
-        [NSStringFromClass([result class])
-            isEqualToString:@"IESECLiveGoodsHotSaleModel"]) {
+    if (!DYYYGetBool(@"DYYYEnableLiveCommerceProbe") ||
+        ![JSONDictionary isKindOfClass:[NSDictionary class]]) {
+        return result;
+    }
 
+    NSString *resultClass =
+        result ? NSStringFromClass([result class]) : @"<nil>";
+
+    BOOL containsHotSale =
+        DYYYCommerceProbeHotEnvelope(
+            JSONDictionary,
+            @"HOT_PARENT_JSON",
+            0);
+
+    if (containsHotSale) {
+        DYYYCommerceProbeAppend(
+            [NSString stringWithFormat:
+                @"HOT_ENVELOPE_ADAPTER "
+                 "resultClass=%@ adapterClass=%@ topKeys=%@",
+                resultClass,
+                NSStringFromClass([self class]),
+                JSONDictionary.allKeys]);
+    }
+
+    if ([resultClass
+            isEqualToString:@"IESECLiveGoodsHotSaleModel"]) {
         DYYYCommerceProbeAppend(
             @"\n===== HOT_RAW_ADAPTER_INSTANCE =====");
 
