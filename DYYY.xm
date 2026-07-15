@@ -8049,6 +8049,225 @@ static NSHashTable *processedParentViews = nil;
 }
 %end
 
+static char kDYYYLiveCommerceProbeTimeKey;
+
+static BOOL DYYYCommerceProbeSensitiveKey(NSString *key) {
+    NSString *value = key.lowercaseString;
+    NSArray *blocked = @[
+        @"token", @"cookie", @"authorization", @"session",
+        @"device", @"install", @"passport", @"odin",
+        @"signature", @"secret", @"password", @"phone"
+    ];
+    for (NSString *word in blocked) {
+        if ([value containsString:word]) return YES;
+    }
+    return NO;
+}
+
+static BOOL DYYYCommerceProbeInterestingKey(NSString *key) {
+    NSString *value = key.lowercaseString;
+    NSArray *wanted = @[
+        @"model", @"viewmodel", @"data", @"item", @"goods",
+        @"product", @"promotion", @"sku", @"price", @"sale",
+        @"sold", @"order", @"pay", @"amount", @"gmv",
+        @"room", @"commerce", @"cart", @"shelf", @"stock"
+    ];
+    for (NSString *word in wanted) {
+        if ([value containsString:word]) return YES;
+    }
+    return NO;
+}
+
+static NSString *DYYYCommerceProbeDescription(id value) {
+    if (!value || value == [NSNull null]) return @"<nil>";
+
+    if ([value isKindOfClass:[NSString class]]) {
+        NSString *text = value;
+        if (text.length > 300) {
+            text = [[text substringToIndex:300] stringByAppendingString:@"..."];
+        }
+        return text;
+    }
+
+    if ([value isKindOfClass:[NSNumber class]]) {
+        return [value description];
+    }
+
+    if ([value isKindOfClass:[NSArray class]]) {
+        return [NSString stringWithFormat:@"<array count=%lu>",
+                                          (unsigned long)[value count]];
+    }
+
+    if ([value isKindOfClass:[NSDictionary class]]) {
+        return [NSString stringWithFormat:@"<dictionary keys=%@>",
+                                          [(NSDictionary *)value allKeys]];
+    }
+
+    return [NSString stringWithFormat:@"<%@ %p>",
+                                      NSStringFromClass([value class]), value];
+}
+
+static void DYYYCommerceProbeAppend(NSString *line) {
+    if (line.length == 0) return;
+
+    NSString *documents =
+        [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory,
+                                              NSUserDomainMask, YES) firstObject];
+    NSString *directory =
+        [documents stringByAppendingPathComponent:@"DYYY"];
+    [[NSFileManager defaultManager]
+        createDirectoryAtPath:directory
+        withIntermediateDirectories:YES
+        attributes:nil
+        error:nil];
+
+    NSString *path =
+        [directory stringByAppendingPathComponent:@"live-commerce-probe.txt"];
+
+    NSDictionary *attributes =
+        [[NSFileManager defaultManager] attributesOfItemAtPath:path error:nil];
+    if ([attributes fileSize] > 5 * 1024 * 1024) {
+        [[NSFileManager defaultManager] removeItemAtPath:path error:nil];
+    }
+
+    NSString *output = [line stringByAppendingString:@"\n"];
+    NSData *data = [output dataUsingEncoding:NSUTF8StringEncoding];
+
+    if (![[NSFileManager defaultManager] fileExistsAtPath:path]) {
+        [data writeToFile:path atomically:YES];
+        return;
+    }
+
+    NSFileHandle *handle = [NSFileHandle fileHandleForWritingAtPath:path];
+    [handle seekToEndOfFile];
+    [handle writeData:data];
+    [handle closeFile];
+}
+
+static void DYYYCommerceProbeObject(id object,
+                                    NSString *path,
+                                    NSUInteger depth,
+                                    NSHashTable *visited) {
+    if (!object || depth > 2 || [visited containsObject:object]) return;
+    [visited addObject:object];
+
+    Class cls = object_getClass(object);
+    DYYYCommerceProbeAppend(
+        [NSString stringWithFormat:@"OBJECT %@ class=%@",
+                                   path, NSStringFromClass(cls)]);
+
+    unsigned int count = 0;
+    objc_property_t *properties = class_copyPropertyList(cls, &count);
+
+    for (unsigned int index = 0; index < count; index++) {
+        NSString *key = [NSString
+            stringWithUTF8String:property_getName(properties[index])];
+
+        if (DYYYCommerceProbeSensitiveKey(key) ||
+            !DYYYCommerceProbeInterestingKey(key)) {
+            continue;
+        }
+
+        id value = nil;
+        @try {
+            value = [object valueForKey:key];
+        } @catch (__unused NSException *exception) {
+            continue;
+        }
+
+        NSString *childPath =
+            [NSString stringWithFormat:@"%@.%@", path, key];
+        DYYYCommerceProbeAppend(
+            [NSString stringWithFormat:@"%@ = %@",
+                                       childPath,
+                                       DYYYCommerceProbeDescription(value)]);
+
+        if (value &&
+            ![value isKindOfClass:[NSString class]] &&
+            ![value isKindOfClass:[NSNumber class]] &&
+            ![value isKindOfClass:[NSData class]]) {
+            DYYYCommerceProbeObject(value, childPath, depth + 1, visited);
+        }
+    }
+
+    free(properties);
+
+    unsigned int ivarCount = 0;
+    Ivar *ivars = class_copyIvarList(cls, &ivarCount);
+
+    for (unsigned int index = 0; index < ivarCount; index++) {
+        const char *name = ivar_getName(ivars[index]);
+        if (!name) continue;
+
+        NSString *key = [NSString stringWithUTF8String:name];
+        if (DYYYCommerceProbeSensitiveKey(key) ||
+            !DYYYCommerceProbeInterestingKey(key)) {
+            continue;
+        }
+
+        id value = nil;
+        @try {
+            value = object_getIvar(object, ivars[index]);
+        } @catch (__unused NSException *exception) {
+            continue;
+        }
+
+        DYYYCommerceProbeAppend(
+            [NSString stringWithFormat:@"%@.%@ = %@",
+                                       path, key,
+                                       DYYYCommerceProbeDescription(value)]);
+    }
+
+    free(ivars);
+}
+
+static void DYYYCommerceProbeView(UIView *view) {
+    if (!DYYYGetBool(@"DYYYEnableLiveCommerceProbe") || !view.window) return;
+
+    NSTimeInterval now = NSDate.date.timeIntervalSince1970;
+    NSNumber *last = objc_getAssociatedObject(
+        view, &kDYYYLiveCommerceProbeTimeKey);
+
+    if (last && now - last.doubleValue < 5.0) return;
+
+    objc_setAssociatedObject(view,
+                             &kDYYYLiveCommerceProbeTimeKey,
+                             @(now),
+                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+
+    NSDateFormatter *formatter = [NSDateFormatter new];
+    formatter.dateFormat = @"yyyy-MM-dd HH:mm:ss";
+
+    DYYYCommerceProbeAppend(
+        [NSString stringWithFormat:@"\n===== %@ view=%@ =====",
+            [formatter stringFromDate:NSDate.date],
+            NSStringFromClass(view.class)]);
+
+    NSHashTable *visited =
+        [NSHashTable hashTableWithOptions:NSPointerFunctionsObjectPointerPersonality];
+    DYYYCommerceProbeObject(view, @"view", 0, visited);
+
+    NSMutableArray<UIView *> *queue =
+        [NSMutableArray arrayWithObject:view];
+
+    NSUInteger scanned = 0;
+    while (queue.count > 0 && scanned < 80) {
+        UIView *current = queue.firstObject;
+        [queue removeObjectAtIndex:0];
+        scanned++;
+
+        if ([current isKindOfClass:[UILabel class]]) {
+            NSString *text = ((UILabel *)current).text;
+            if (text.length > 0) {
+                DYYYCommerceProbeAppend(
+                    [NSString stringWithFormat:@"VISIBLE_TEXT = %@", text]);
+            }
+        }
+
+        [queue addObjectsFromArray:current.subviews];
+    }
+}
+
 // 隐藏直播间商品和推广
 %hook IESECLivePluginLayoutView
 - (void)layoutSubviews {
@@ -8057,6 +8276,7 @@ static NSHashTable *processedParentViews = nil;
         return;
     }
     %orig;
+    DYYYCommerceProbeView(self);
 }
 %end
 
@@ -8067,6 +8287,7 @@ static NSHashTable *processedParentViews = nil;
         return;
     }
     %orig;
+    DYYYCommerceProbeView(self);
 }
 %end
 
@@ -8077,6 +8298,7 @@ static NSHashTable *processedParentViews = nil;
         return;
     }
     %orig;
+    DYYYCommerceProbeView(self);
 }
 %end
 
