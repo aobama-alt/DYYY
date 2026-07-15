@@ -9425,7 +9425,7 @@ fromJSONDictionary:(NSDictionary *)JSONDictionary
                 @"HOT_ENVELOPE_ADAPTER "
                  "resultClass=%@ adapterClass=%@ topKeys=%@",
                 resultClass,
-                NSStringFromClass([self class]),
+                NSStringFromClass(object_getClass((id)self)),
                 JSONDictionary.allKeys]);
     }
 
